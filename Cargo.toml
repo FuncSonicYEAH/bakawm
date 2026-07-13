@@ -1,0 +1,94 @@
+[package]
+authors = ["Victor Berger <victor.berger@m4x.org>", "Drakulix (Victoria Brekenfeld)"]
+edition = "2024"
+license = "MIT"
+name = "bakawm"
+publish = false
+version = "0.0.1"
+
+[dependencies]
+bitflags = "2.2.1"
+glam = "0.29"
+fps_ticker = {version = "1.0.0", optional = true}
+image = {version = "0.25.1", default-features = false, optional = true, features = ["png"]}
+png = "0.17"
+rand = "0.8"
+tracing = { version = "0.1.37", features = ["max_level_trace", "release_max_level_debug"] }
+tracing-subscriber = { version = "0.3.16", features = ["env-filter"] }
+thiserror = "1"
+xcursor = {version = "0.3.3", optional = true}
+xkbcommon = "0.8.0"
+wayland-scanner = { version = "0.31", optional = true }
+wayland-server = { version = "0.31", optional = true }
+wayland-backend = { version = "0.3", optional = true }
+renderdoc = {version = "0.11.0", optional = true}
+smithay-drm-extras = {git = "https://github.com/Smithay/smithay", rev = "3021f619e2ae4dab8bfb1e21f3f210923b9b6582", optional = true}
+puffin_http = { version = "0.13", optional = true }
+profiling = { version = "1.0" }
+dirs = "5"
+mlua = { version = "0.10", features = ["lua54", "vendored"] }
+notify = { version = "7", default-features = false, features = ["macos_kqueue"] }
+sd-notify = { version = "0.5", optional = true }
+pipewire = { version = "0.9.2", optional = true, features = ["v0_3_33"] }
+zbus = { version = "5.13.2", optional = true }
+async-io = { version = "2.6.0", optional = true }
+anyhow = "1"
+serde = { version = "1", features = ["derive"] }
+async-channel = "2.5.0"
+calloop = { version = "0.14.4", features = ["executor", "futures-io", "signals"] }
+
+[dependencies.smithay]
+git = "https://github.com/Smithay/smithay"
+rev = "3021f619e2ae4dab8bfb1e21f3f210923b9b6582"
+default-features = false
+features = ["desktop", "wayland_frontend"]
+
+[dependencies.x11rb]
+default-features = false
+features = ["composite"]
+optional = true
+version = "0.13.0"
+
+[build-dependencies]
+gl_generator = "0.14"
+pkg-config = "0.3"
+
+[dev-dependencies]
+tempfile = "3"
+
+[[bin]]
+name = "bakawm-ctl"
+path = "src/ctl/main.rs"
+required-features = ["udev"]
+
+[features]
+debug = ["fps_ticker", "image/png", "renderdoc"]
+default = ["egl", "winit", "x11", "udev", "xwayland", "libei", "systemd", "xdp-gnome-screencast"]
+egl = ["smithay/use_system_lib", "smithay/backend_egl"]
+systemd = ["sd-notify"]
+xdp-gnome-screencast = ["pipewire", "zbus", "async-io", "udev", "wayland-scanner", "wayland-server", "wayland-backend"]
+dinit = []
+test_all_features = ["default", "debug"]
+udev = [
+  "smithay-drm-extras",
+  "smithay/backend_libinput",
+  "smithay/backend_udev",
+  "smithay/backend_drm",
+  "smithay/backend_gbm",
+  "smithay/backend_vulkan",
+  "smithay/backend_egl",
+  "smithay/backend_session_libseat",
+  "image",
+  "smithay/renderer_gl",
+  "smithay/renderer_pixman",
+  "smithay/renderer_multi",
+  "xcursor",
+]
+winit = ["smithay/backend_winit", "smithay/backend_drm"]
+x11 = ["smithay/backend_x11", "x11rb", "smithay/renderer_gl", "smithay/backend_vulkan"]
+xwayland = ["smithay/xwayland", "x11rb", "smithay/x11rb_event_source", "xcursor"]
+libei = ["smithay/backend_libei", "udev"]
+profile-with-puffin = ["profiling/profile-with-puffin", "puffin_http"]
+profile-with-tracy = ["profiling/profile-with-tracy"]
+profile-with-tracy-mem = ["profile-with-tracy"]
+renderer_sync = []

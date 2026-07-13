@@ -1,0 +1,6 @@
+[Desktop Entry]
+Name=bakawm
+Comment=A Wayland compositor built with Rust and Smithay
+Exec=bakawm-session
+Type=Application
+DesktopNames=bakawm

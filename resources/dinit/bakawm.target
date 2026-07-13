@@ -1,0 +1,6 @@
+type           = internal
+restart        = false
+depends-on:    bakawm
+waits-for.d:   $XDG_CONFIG_HOME/dinit.d/bakawm.d/
+waits-for.d:   $HOME/.config/dinit.d/bakawm.d/
+waits-for.d:   /etc/dinit.d/user/bakawm.d/

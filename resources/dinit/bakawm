@@ -1,0 +1,7 @@
+type               = process
+command            = bakawm --session
+restart            = false
+working-dir        = $HOME
+ready-notification = pipevar:NOTIFY_FD
+logfile            = $HOME/.local/share/bakawm/bakawm.log
+depends-on:        dbus
