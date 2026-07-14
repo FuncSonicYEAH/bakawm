@@ -159,10 +159,10 @@ impl<BackendData: Backend> AnvilState<BackendData> {
     fn keyboard_key_to_action<B: InputBackend>(&mut self, evt: B::KeyboardKeyEvent) -> KeyAction {
         let keycode = evt.key_code();
         let state = evt.state();
+        let pressed = state == KeyState::Pressed;
         debug!(?keycode, ?state, "key");
         let serial = SCOUNTER.next_serial();
         let time = Event::time_msec(&evt);
-        let mut suppressed_keys = self.suppressed_keys.clone();
         let keyboard = self.seat.get_keyboard().unwrap();
 
         for layer in self.layer_shell_state.layer_surfaces().rev() {
@@ -198,27 +198,27 @@ impl<BackendData: Backend> AnvilState<BackendData> {
         let binds = self.config.binds.clone();
 
         let action = keyboard
-            .input(self, keycode, state, serial, time, |_, modifiers, handle| {
-                let keysym = handle.modified_sym();
+            .input(self, keycode, state, serial, time, |this, modifiers, handle| {
+                let modified = handle.modified_sym();
+                let raw = handle.raw_latin_sym_or_raw_current_sym();
 
                 debug!(
                     ?state,
                     mods = ?modifiers,
-                    keysym = ::xkbcommon::xkb::keysym_get_name(keysym),
+                    keysym = ::xkbcommon::xkb::keysym_get_name(modified),
                     "keysym"
                 );
 
-                // If the key is pressed and triggered a action
-                // we will not forward the key to the client.
-                // Additionally add the key to the suppressed keys
-                // so that we can decide on a release if the key
-                // should be forwarded to the client or not.
-                if let KeyState::Pressed = state {
+                if !pressed && !this.suppressed_keys.contains(&keycode) {
+                    return FilterResult::Forward;
+                }
+
+                if pressed {
                     if !inhibited {
-                        let action = process_keyboard_shortcut(&binds, *modifiers, keysym);
+                        let action = process_keyboard_shortcut(&binds, *modifiers, modified, raw);
 
                         if action.is_some() {
-                            suppressed_keys.push(keysym);
+                            this.suppressed_keys.insert(keycode);
                         }
 
                         action
@@ -228,18 +228,12 @@ impl<BackendData: Backend> AnvilState<BackendData> {
                         FilterResult::Forward
                     }
                 } else {
-                    let suppressed = suppressed_keys.contains(&keysym);
-                    if suppressed {
-                        suppressed_keys.retain(|k| *k != keysym);
-                        FilterResult::Intercept(KeyAction::None)
-                    } else {
-                        FilterResult::Forward
-                    }
+                    this.suppressed_keys.remove(&keycode);
+                    FilterResult::Intercept(KeyAction::None)
                 }
             })
             .unwrap_or(KeyAction::None);
 
-        self.suppressed_keys = suppressed_keys;
         self.update_cursor_for_no_csd();
         action
     }
@@ -1504,15 +1498,16 @@ enum KeyAction {
 fn process_keyboard_shortcut(
     binds: &[BindConfig],
     modifiers: ModifiersState,
-    keysym: Keysym,
+    modified: Keysym,
+    raw: Option<Keysym>,
 ) -> Option<KeyAction> {
-    if (xkb::KEY_XF86Switch_VT_1..=xkb::KEY_XF86Switch_VT_12).contains(&keysym.raw()) {
+    if (xkb::KEY_XF86Switch_VT_1..=xkb::KEY_XF86Switch_VT_12).contains(&modified.raw()) {
         return Some(KeyAction::VtSwitch(
-            (keysym.raw() - xkb::KEY_XF86Switch_VT_1 + 1) as i32,
+            (modified.raw() - xkb::KEY_XF86Switch_VT_1 + 1) as i32,
         ));
     }
 
-    if keysym == Keysym::Print {
+    if modified == Keysym::Print || raw == Some(Keysym::Print) {
         return Some(KeyAction::Screenshot);
     }
 
@@ -1551,48 +1546,54 @@ fn process_keyboard_shortcut(
         }
 
         let key_matches = match bind.key.as_str() {
-            "BackSpace" => keysym == Keysym::BackSpace,
-            "Return" => keysym == Keysym::Return,
-            "Tab" => keysym == Keysym::Tab,
-            "Escape" => keysym == Keysym::Escape,
-            "Space" => keysym == Keysym::space,
-            "Print" => keysym == Keysym::Print,
-            "Insert" => keysym == Keysym::Insert,
-            "Delete" => keysym == Keysym::Delete,
-            "Home" => keysym == Keysym::Home,
-            "End" => keysym == Keysym::End,
-            "Page_Up" => keysym == Keysym::Page_Up,
-            "Page_Down" => keysym == Keysym::Page_Down,
-            "Left" => keysym == Keysym::Left,
-            "Right" => keysym == Keysym::Right,
-            "Up" => keysym == Keysym::Up,
-            "Down" => keysym == Keysym::Down,
-            "F1" => keysym == Keysym::F1,
-            "F2" => keysym == Keysym::F2,
-            "F3" => keysym == Keysym::F3,
-            "F4" => keysym == Keysym::F4,
-            "F5" => keysym == Keysym::F5,
-            "F6" => keysym == Keysym::F6,
-            "F7" => keysym == Keysym::F7,
-            "F8" => keysym == Keysym::F8,
-            "F9" => keysym == Keysym::F9,
-            "F10" => keysym == Keysym::F10,
-            "F11" => keysym == Keysym::F11,
-            "F12" => keysym == Keysym::F12,
+            "BackSpace" => modified == Keysym::BackSpace || raw == Some(Keysym::BackSpace),
+            "Return" => modified == Keysym::Return || raw == Some(Keysym::Return),
+            "Tab" => modified == Keysym::Tab || raw == Some(Keysym::Tab),
+            "Escape" => modified == Keysym::Escape || raw == Some(Keysym::Escape),
+            "Space" => modified == Keysym::space || raw == Some(Keysym::space),
+            "Print" => modified == Keysym::Print || raw == Some(Keysym::Print),
+            "Insert" => modified == Keysym::Insert || raw == Some(Keysym::Insert),
+            "Delete" => modified == Keysym::Delete || raw == Some(Keysym::Delete),
+            "Home" => modified == Keysym::Home || raw == Some(Keysym::Home),
+            "End" => modified == Keysym::End || raw == Some(Keysym::End),
+            "Page_Up" => modified == Keysym::Page_Up || raw == Some(Keysym::Page_Up),
+            "Page_Down" => modified == Keysym::Page_Down || raw == Some(Keysym::Page_Down),
+            "Left" => modified == Keysym::Left || raw == Some(Keysym::Left),
+            "Right" => modified == Keysym::Right || raw == Some(Keysym::Right),
+            "Up" => modified == Keysym::Up || raw == Some(Keysym::Up),
+            "Down" => modified == Keysym::Down || raw == Some(Keysym::Down),
+            "F1" => modified == Keysym::F1 || raw == Some(Keysym::F1),
+            "F2" => modified == Keysym::F2 || raw == Some(Keysym::F2),
+            "F3" => modified == Keysym::F3 || raw == Some(Keysym::F3),
+            "F4" => modified == Keysym::F4 || raw == Some(Keysym::F4),
+            "F5" => modified == Keysym::F5 || raw == Some(Keysym::F5),
+            "F6" => modified == Keysym::F6 || raw == Some(Keysym::F6),
+            "F7" => modified == Keysym::F7 || raw == Some(Keysym::F7),
+            "F8" => modified == Keysym::F8 || raw == Some(Keysym::F8),
+            "F9" => modified == Keysym::F9 || raw == Some(Keysym::F9),
+            "F10" => modified == Keysym::F10 || raw == Some(Keysym::F10),
+            "F11" => modified == Keysym::F11 || raw == Some(Keysym::F11),
+            "F12" => modified == Keysym::F12 || raw == Some(Keysym::F12),
             single_char if single_char.len() == 1 => {
                 if let Some(c) = single_char.chars().next() {
                     let lower = c.to_lowercase().next().unwrap();
-                    let keysym_name = xkbcommon::xkb::keysym_get_name(keysym);
-                    keysym_name == single_char
-                        || keysym == Keysym::from_char(lower)
-                        || keysym == Keysym::from_char(c)
+                    let lower_keysym = Keysym::from_char(lower);
+                    let upper_keysym = Keysym::from_char(c);
+                    modified == lower_keysym
+                        || modified == upper_keysym
+                        || raw == Some(lower_keysym)
+                        || raw == Some(upper_keysym)
                 } else {
                     false
                 }
             }
             other => {
-                let keysym_name = xkbcommon::xkb::keysym_get_name(keysym);
-                keysym_name == other
+                let modified_name = xkbcommon::xkb::keysym_get_name(modified);
+                let raw_matches = raw.map(|r| {
+                    let raw_name = xkbcommon::xkb::keysym_get_name(r);
+                    raw_name == other
+                }).unwrap_or(false);
+                modified_name == other || raw_matches
             }
         };
 

@@ -671,8 +671,7 @@ fn handle_toplevel_commit(space: &mut Space<WindowElement>, surface: &WlSurface)
     }
 
     if new_loc.x.is_some() || new_loc.y.is_some() {
-        // If TOP or LEFT side of the window got resized, we have to move it
-        space.map_element(window, window_loc, false);
+        space.relocate_element(&window, window_loc);
     }
 
     Some(())

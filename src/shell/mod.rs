@@ -194,7 +194,7 @@ impl<BackendData: Backend> CompositorHandler for AnvilState<BackendData> {
 
                     if let Some(buffer_offset) = buffer_offset {
                         let current_loc = self.space.element_location(&window).unwrap();
-                        self.space.map_element(window, current_loc + buffer_offset, false);
+                        self.space.relocate_element(&window, current_loc + buffer_offset);
                     }
                 }
             }
@@ -397,10 +397,6 @@ fn place_new_window(
     window: &WindowElement,
     activate: bool,
 ) {
-    // place the window at a random location on same output as pointer
-    // or if there is not output in a [0;800]x[0;800] square
-    use rand::distributions::{Distribution, Uniform};
-
     let output = space
         .output_under(pointer_location)
         .next()
@@ -415,7 +411,6 @@ fn place_new_window(
         })
         .unwrap_or_else(|| Rectangle::from_size((800, 800).into()));
 
-    // set the initial toplevel bounds
     #[allow(irrefutable_let_patterns)]
     if let Some(toplevel) = window.0.toplevel() {
         toplevel.with_pending_state(|state| {
@@ -423,13 +418,9 @@ fn place_new_window(
         });
     }
 
-    let max_x = output_geometry.loc.x + (((output_geometry.size.w as f32) / 3.0) * 2.0) as i32;
-    let max_y = output_geometry.loc.y + (((output_geometry.size.h as f32) / 3.0) * 2.0) as i32;
-    let x_range = Uniform::new(output_geometry.loc.x, max_x);
-    let y_range = Uniform::new(output_geometry.loc.y, max_y);
-    let mut rng = rand::thread_rng();
-    let x = x_range.sample(&mut rng);
-    let y = y_range.sample(&mut rng);
+    let window_bbox = window.bbox();
+    let x = output_geometry.loc.x + (output_geometry.size.w - window_bbox.size.w) / 2 - window_bbox.loc.x;
+    let y = output_geometry.loc.y + (output_geometry.size.h - window_bbox.size.h) / 2 - window_bbox.loc.y;
 
     space.map_element(window.clone(), (x, y), activate);
 }

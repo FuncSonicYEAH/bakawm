@@ -144,9 +144,7 @@ impl<BackendData: Backend> XwmHandler for AnvilState<BackendData> {
         else {
             return;
         };
-        self.space.map_element(elem, geometry.loc, false);
-        // TODO: We don't properly handle the order of override-redirect windows here,
-        //       they are always mapped top and then never reordered.
+        self.space.relocate_element(&elem, geometry.loc);
     }
 
     fn maximize_request(&mut self, _xwm: XwmId, window: X11Surface) {
@@ -170,7 +168,7 @@ impl<BackendData: Backend> XwmHandler for AnvilState<BackendData> {
             .and_then(|data| data.restore())
         {
             window.configure(old_geo).unwrap();
-            self.space.map_element(elem, old_geo.loc, false);
+            self.space.relocate_element(&elem, old_geo.loc);
         }
     }
 
@@ -361,7 +359,7 @@ impl<BackendData: Backend> AnvilState<BackendData> {
         window.configure(geometry).unwrap();
         window.user_data().insert_if_missing(OldGeometry::default);
         window.user_data().get::<OldGeometry>().unwrap().save(old_geo);
-        self.space.map_element(elem, geometry.loc, false);
+        self.space.relocate_element(&elem, geometry.loc);
     }
 
     pub fn move_request_x11(&mut self, window: &X11Surface) {

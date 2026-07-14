@@ -1,7 +1,7 @@
 #[cfg(feature = "xwayland")]
 use std::os::unix::io::OwnedFd;
 use std::{
-    collections::HashMap,
+    collections::{HashMap, HashSet},
     sync::{Arc, atomic::AtomicBool},
     time::Duration,
 };
@@ -10,7 +10,7 @@ use tracing::{info, warn};
 
 use smithay::{
     backend::{
-        input::TabletToolDescriptor,
+        input::{Keycode, TabletToolDescriptor},
         renderer::element::{
             RenderElementStates, default_primary_scanout_output_compare, utils::select_dmabuf_feedback,
         },
@@ -28,7 +28,7 @@ use smithay::{
     input::{
         Seat, SeatHandler, SeatState,
         dnd::{DnDGrab, DndGrabHandler, DndTarget, GrabType, Source},
-        keyboard::{Keysym, LedState, XkbConfig},
+        keyboard::{LedState, XkbConfig},
         pointer::{CursorImageStatus, Focus, PointerHandle},
     },
     output::Output,
@@ -179,7 +179,7 @@ pub struct AnvilState<BackendData: Backend + 'static> {
     pub pending_screenshot: bool,
 
     // input-related fields
-    pub suppressed_keys: Vec<Keysym>,
+    pub suppressed_keys: HashSet<Keycode>,
     pub cursor_status: CursorImageStatus,
     pub seat_name: String,
     pub seat: Seat<AnvilState<BackendData>>,
@@ -824,7 +824,7 @@ impl<BackendData: Backend + 'static> AnvilState<BackendData> {
             screencopy_state,
             dnd_icon: None,
             pending_screenshot: false,
-            suppressed_keys: Vec::new(),
+            suppressed_keys: HashSet::new(),
             cursor_status: CursorImageStatus::default_named(),
             seat_name,
             seat,
