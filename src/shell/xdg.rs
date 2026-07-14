@@ -15,7 +15,7 @@ use smithay::{
             protocol::{wl_output, wl_seat, wl_surface::WlSurface},
         },
     },
-    utils::{Logical, Point, Serial},
+    utils::{Logical, Point, Rectangle, Serial},
     wayland::{
         compositor::{self, with_states},
         seat::WaylandFocus,
@@ -637,6 +637,40 @@ fn handle_toplevel_commit(space: &mut Space<WindowElement>, surface: &WlSurface)
     let mut window_loc = space.element_location(&window)?;
     let geometry = window.geometry();
 
+    let needs_center = with_states(window.wl_surface().as_deref()?, |states| {
+        let Some(data) = states.data_map.get::<RefCell<SurfaceData>>() else {
+            return false;
+        };
+        let mut data = data.borrow_mut();
+        let needs = data.needs_center && geometry.size.w > 0 && geometry.size.h > 0;
+        if needs {
+            data.needs_center = false;
+        }
+        needs
+    });
+
+    if needs_center {
+        let outputs_for_window = space.outputs_for_element(&window);
+        let output = outputs_for_window
+            .first()
+            .or_else(|| space.outputs().next())
+            .cloned();
+        let output_geometry = output
+            .and_then(|o| {
+                let geo = space.output_geometry(&o)?;
+                let map = layer_map_for_output(&o);
+                let zone = map.non_exclusive_zone();
+                Some(Rectangle::new(geo.loc + zone.loc, zone.size))
+            });
+
+        if let Some(output_geometry) = output_geometry {
+            let x = output_geometry.loc.x + (output_geometry.size.w - geometry.size.w) / 2 - geometry.loc.x;
+            let y = output_geometry.loc.y + (output_geometry.size.h - geometry.size.h) / 2 - geometry.loc.y;
+            space.relocate_element(&window, (x, y));
+            return Some(());
+        }
+    }
+
     let new_loc: Point<Option<i32>, Logical> = with_states(window.wl_surface().as_deref()?, |states| {
         let data = states.data_map.get::<RefCell<SurfaceData>>()?.borrow_mut();
 
@@ -645,8 +679,6 @@ fn handle_toplevel_commit(space: &mut Space<WindowElement>, surface: &WlSurface)
             let loc = resize_data.initial_window_location;
             let size = resize_data.initial_window_size;
 
-            // If the window is being resized by top or left, its location must be adjusted
-            // accordingly.
             edges.intersects(ResizeEdge::TOP_LEFT).then(|| {
                 let new_x = edges
                     .intersects(ResizeEdge::LEFT)

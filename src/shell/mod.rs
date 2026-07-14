@@ -289,6 +289,7 @@ impl<BackendData: Backend> AnvilState<BackendData> {
 pub struct SurfaceData {
     pub geometry: Option<Rectangle<i32, Logical>>,
     pub resize_state: ResizeState,
+    pub needs_center: bool,
 }
 
 fn ensure_initial_configure(surface: &WlSurface, space: &Space<WindowElement>, popups: &mut PopupManager) {
@@ -419,10 +420,26 @@ fn place_new_window(
     }
 
     let window_bbox = window.bbox();
+
+    let needs_center = window_bbox.size.w == 0 || window_bbox.size.h == 0;
+
     let x = output_geometry.loc.x + (output_geometry.size.w - window_bbox.size.w) / 2 - window_bbox.loc.x;
     let y = output_geometry.loc.y + (output_geometry.size.h - window_bbox.size.h) / 2 - window_bbox.loc.y;
 
     space.map_element(window.clone(), (x, y), activate);
+
+    if needs_center {
+        if let Some(surface) = window.wl_surface().as_deref() {
+            with_states(surface, |states| {
+                states
+                    .data_map
+                    .insert_if_missing(|| RefCell::new(SurfaceData { needs_center: true, ..Default::default() }));
+                if let Some(data) = states.data_map.get::<RefCell<SurfaceData>>() {
+                    data.borrow_mut().needs_center = true;
+                }
+            });
+        }
+    }
 }
 
 pub fn fixup_positions(space: &mut Space<WindowElement>, pointer_location: Point<f64, Logical>) {
