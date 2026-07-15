@@ -43,7 +43,13 @@ impl Default for PointerElement {
 
 impl PointerElement {
     pub fn set_status(&mut self, status: CursorImageStatus) {
-        self.status = status;
+        match (&self.status, &status) {
+            (CursorImageStatus::Hidden, CursorImageStatus::Hidden) => {}
+            (CursorImageStatus::Named(a), CursorImageStatus::Named(b)) if a == b => {}
+            _ => {
+                self.status = status;
+            }
+        }
     }
 
     pub fn set_buffer(&mut self, buffer: MemoryRenderBuffer) {

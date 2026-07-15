@@ -4,7 +4,9 @@ use std::path::PathBuf;
 
 use smithay::backend::udev::{all_gpus, primary_gpu};
 use smithay::reexports::drm;
-use smithay::reexports::drm::control::{connector, Device as ControlDevice, ModeTypeFlags, ResourceHandles};
+use smithay::reexports::drm::control::{
+    Device as ControlDevice, ModeTypeFlags, ResourceHandles, connector,
+};
 use smithay::reexports::rustix::fs::OFlags;
 use smithay_drm_extras::display_info;
 
@@ -28,7 +30,9 @@ fn main() {
         Ok(c) => c,
         Err(e) => {
             eprintln!("Error: {e}");
-            eprintln!("Hint: This tool needs access to DRM devices. Try running with appropriate permissions.");
+            eprintln!(
+                "Hint: This tool needs access to DRM devices. Try running with appropriate permissions."
+            );
             std::process::exit(1);
         }
     };

@@ -670,17 +670,26 @@ impl AsRenderElements<GlesRenderer> for WindowElement {
         let window_geo_loc_logical: Point<f64, Logical> =
             Point::<f64, Physical>::from((content_location.x as f64, content_location.y as f64))
                 .to_logical(scale);
-        let window_geo_size_logical: Size<f64, Logical> = window_geo
-            .size
-            .to_f64()
-            .to_physical_precise_round(scale)
-            .to_logical(scale);
+        let window_geo_size_logical: Size<f64, Logical> = window_geo.size.to_f64();
         let window_geo_logical: Rectangle<f64, Logical> =
             Rectangle::new(window_geo_loc_logical, window_geo_size_logical);
         let radius = corner_radius.fit_to(window_geo.size.w as f32, window_geo.size.h as f32);
 
-        let clip_shader = ClippedSurfaceRenderElement::shader(renderer).cloned();
-        let has_border_shader = BorderRenderElement::has_shader(renderer);
+        let clip_shader = if has_corners {
+            ClippedSurfaceRenderElement::shader(renderer).cloned()
+        } else {
+            None
+        };
+        let has_border_shader = if has_border && has_corners {
+            *state.has_border_shader.get_or_insert_with(|| BorderRenderElement::has_shader(renderer))
+        } else {
+            false
+        };
+        let has_shadow_shader = if has_shadow {
+            *state.has_shadow_shader.get_or_insert_with(|| ShadowRenderElement::has_shader(renderer))
+        } else {
+            false
+        };
 
         let window_elements: Vec<WindowRenderElement> =
             AsRenderElements::render_elements(&self.0, renderer, location, scale, alpha);
@@ -690,25 +699,27 @@ impl AsRenderElements<GlesRenderer> for WindowElement {
             for elem in window_elements {
                 match elem {
                     WindowRenderElement::Window(wayland_elem) => {
-                        if let Some(shader) = clip_shader.clone() {
-                            if ClippedSurfaceRenderElement::will_clip(
-                                &wayland_elem,
-                                scale,
-                                window_geo_logical,
-                                radius,
-                            ) {
-                                result.push(
-                                    C::from(WindowRenderElement::ClippedSurface(
-                                        ClippedSurfaceRenderElement::new(
-                                            wayland_elem,
-                                            scale,
-                                            window_geo_logical,
-                                            shader,
-                                            radius,
-                                        ),
-                                    )),
-                                );
-                                continue;
+                        if has_corners {
+                            if let Some(shader) = clip_shader.clone() {
+                                if ClippedSurfaceRenderElement::will_clip(
+                                    &wayland_elem,
+                                    scale,
+                                    window_geo_logical,
+                                    radius,
+                                ) {
+                                    result.push(
+                                        C::from(WindowRenderElement::ClippedSurface(
+                                            ClippedSurfaceRenderElement::new(
+                                                wayland_elem,
+                                                scale,
+                                                window_geo_logical,
+                                                shader,
+                                                radius,
+                                            ),
+                                        )),
+                                    );
+                                    continue;
+                                }
                             }
                         }
                         result.push(C::from(WindowRenderElement::Window(wayland_elem)));
@@ -732,7 +743,10 @@ impl AsRenderElements<GlesRenderer> for WindowElement {
                 );
                 let border_geo = Rectangle::from_size(full_size);
 
-                let border_elem = BorderRenderElement::new(
+                let cached = state
+                    .cached_border_element
+                    .get_or_insert_with(BorderRenderElement::empty);
+                cached.update(
                     full_size,
                     border_color,
                     border_color,
@@ -741,13 +755,15 @@ impl AsRenderElements<GlesRenderer> for WindowElement {
                     outer_radius,
                     scale.x as f32,
                     alpha,
-                )
-                .with_location(
-                    Point::from((
-                        window_geo_logical.loc.x - border_width as f64,
-                        window_geo_logical.loc.y - border_width as f64,
-                    )),
                 );
+                let border_elem = cached
+                    .clone()
+                    .with_location(
+                        Point::from((
+                            window_geo_logical.loc.x - border_width as f64,
+                            window_geo_logical.loc.y - border_width as f64,
+                        )),
+                    );
 
                 vec.insert(0, C::from(WindowRenderElement::Border(border_elem)));
             } else {
@@ -809,7 +825,7 @@ impl AsRenderElements<GlesRenderer> for WindowElement {
             }
         }
 
-        if has_shadow && !window_bbox.is_empty() && ShadowRenderElement::has_shader(renderer) {
+        if has_shadow && !window_bbox.is_empty() && has_shadow_shader {
             let ceil = |logical: f64| (logical * scale.x).ceil() / scale.x;
 
             let sigma = (shadow_config.softness / 2.) as f32;
@@ -842,23 +858,30 @@ impl AsRenderElements<GlesRenderer> for WindowElement {
                 window_geo_size_logical,
             );
 
-            let shadow_elem = ShadowRenderElement::new(
-                shader_size,
-                Rectangle::new(shader_geo.loc.upscale(-1.), box_size),
-                shadow_config.color,
-                sigma,
-                shadow_radius,
-                scale.x as f32,
-                window_geo_for_shadow,
-                win_radius,
-                alpha,
-            )
-            .with_location(
-                Point::from((
-                    window_geo_logical.loc.x + offset.x,
-                    window_geo_logical.loc.y + offset.y,
-                )),
-            );
+            let shadow_elem = {
+                let cached = state
+                    .cached_shadow_element
+                    .get_or_insert_with(ShadowRenderElement::empty);
+                cached.update(
+                    shader_size,
+                    Rectangle::new(shader_geo.loc.upscale(-1.), box_size),
+                    shadow_config.color,
+                    sigma,
+                    shadow_radius,
+                    scale.x as f32,
+                    window_geo_for_shadow,
+                    win_radius,
+                    alpha,
+                );
+                cached
+                    .clone()
+                    .with_location(
+                        Point::from((
+                            window_geo_logical.loc.x + offset.x,
+                            window_geo_logical.loc.y + offset.y,
+                        )),
+                    )
+            };
 
             vec.insert(0, C::from(WindowRenderElement::Shadow(shadow_elem)));
         }

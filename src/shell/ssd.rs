@@ -14,7 +14,7 @@ use smithay::{
 
 use std::cell::{RefCell, RefMut};
 
-use crate::{AnvilState, config::{CornerRadius, ShadowConfig}, state::Backend};
+use crate::{AnvilState, config::{CornerRadius, ShadowConfig}, render_helpers::{border::BorderRenderElement, shadow::ShadowRenderElement}, state::Backend};
 
 use super::WindowElement;
 
@@ -24,6 +24,10 @@ pub struct WindowState {
     pub border: BorderState,
     pub shadow: ShadowConfig,
     pub corner_radius: CornerRadius,
+    pub has_border_shader: Option<bool>,
+    pub has_shadow_shader: Option<bool>,
+    pub cached_border_element: Option<BorderRenderElement>,
+    pub cached_shadow_element: Option<ShadowRenderElement>,
 }
 
 #[derive(Debug, Clone)]
@@ -359,6 +363,10 @@ impl WindowElement {
                 border: BorderState::default(),
                 shadow: ShadowConfig::default(),
                 corner_radius: CornerRadius::default(),
+                has_border_shader: None,
+                has_shadow_shader: None,
+                cached_border_element: None,
+                cached_shadow_element: None,
             })
         });
 

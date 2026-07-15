@@ -195,8 +195,6 @@ impl<BackendData: Backend> AnvilState<BackendData> {
             .map(|inhibitor| inhibitor.is_active())
             .unwrap_or(false);
 
-        let binds = self.config.binds.clone();
-
         let action = keyboard
             .input(self, keycode, state, serial, time, |this, modifiers, handle| {
                 let modified = handle.modified_sym();
@@ -215,7 +213,7 @@ impl<BackendData: Backend> AnvilState<BackendData> {
 
                 if pressed {
                     if !inhibited {
-                        let action = process_keyboard_shortcut(&binds, *modifiers, modified, raw);
+                        let action = process_keyboard_shortcut(&this.config.binds, *modifiers, modified, raw);
 
                         if action.is_some() {
                             this.suppressed_keys.insert(keycode);

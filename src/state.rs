@@ -996,9 +996,9 @@ impl<BackendData: Backend + 'static> AnvilState<BackendData> {
     }
 
     pub fn update_border_focus(&mut self, target: Option<&KeyboardFocusTarget>) {
-        let focused_window = target.and_then(|t| {
+        let focused_surface = target.and_then(|t| {
             if let crate::focus::KeyboardFocusTarget::Window(w) = t {
-                Some(w)
+                w.wl_surface()
             } else {
                 None
             }
@@ -1007,10 +1007,8 @@ impl<BackendData: Backend + 'static> AnvilState<BackendData> {
         let border_width = self.config.window.border.width;
 
         self.space.elements().for_each(|window| {
-            let is_focused = focused_window.as_ref().is_some_and(|fw| {
-                fw.wl_surface().is_some_and(|fs| {
-                    window.wl_surface().is_some_and(|ws| fs == ws)
-                })
+            let is_focused = focused_surface.as_ref().is_some_and(|fs| {
+                window.wl_surface().is_some_and(|ws| fs == &ws)
             });
             let geo = smithay::desktop::space::SpaceElement::geometry(&window.0);
             let mut ws = window.decoration_state();
@@ -1067,7 +1065,7 @@ impl<BackendData: Backend + 'static> AnvilState<BackendData> {
 
         #[allow(clippy::mutable_key_type)]
         let mut clients: HashMap<ClientId, Client> = HashMap::new();
-        self.space.elements().for_each(|window| {
+        self.space.elements_for_output(output).for_each(|window| {
             window.with_surfaces(|surface, states| {
                 if let Some(mut commit_timer_state) = states
                     .data_map
@@ -1146,7 +1144,7 @@ impl<BackendData: Backend + 'static> AnvilState<BackendData> {
         #[allow(clippy::mutable_key_type)]
         let mut clients: HashMap<ClientId, Client> = HashMap::new();
 
-        self.space.elements().for_each(|window| {
+        self.space.elements_for_output(output).for_each(|window| {
             window.with_surfaces(|surface, states| {
                 let primary_scanout_output = surface_primary_scanout_output(surface, states);
 
@@ -1176,18 +1174,16 @@ impl<BackendData: Backend + 'static> AnvilState<BackendData> {
                 }
             });
 
-            if self.space.outputs_for_element(window).contains(output) {
-                window.send_frame(output, time, throttle, surface_primary_scanout_output);
-                if let Some(dmabuf_feedback) = dmabuf_feedback.as_ref() {
-                    window.send_dmabuf_feedback(output, surface_primary_scanout_output, |surface, _| {
-                        select_dmabuf_feedback(
-                            surface,
-                            render_element_states,
-                            &dmabuf_feedback.render_feedback,
-                            &dmabuf_feedback.scanout_feedback,
-                        )
-                    });
-                }
+            window.send_frame(output, time, throttle, surface_primary_scanout_output);
+            if let Some(dmabuf_feedback) = dmabuf_feedback.as_ref() {
+                window.send_dmabuf_feedback(output, surface_primary_scanout_output, |surface, _| {
+                    select_dmabuf_feedback(
+                        surface,
+                        render_element_states,
+                        &dmabuf_feedback.render_feedback,
+                        &dmabuf_feedback.scanout_feedback,
+                    )
+                });
             }
         });
         let map = smithay::desktop::layer_map_for_output(output);
@@ -1313,7 +1309,7 @@ pub fn update_primary_scanout_output(
     cursor_status: &CursorImageStatus,
     render_element_states: &RenderElementStates,
 ) {
-    space.elements().for_each(|window| {
+    space.elements_for_output(output).for_each(|window| {
         window.with_surfaces(|surface, states| {
             update_surface_primary_scanout_output(
                 surface,
@@ -1380,16 +1376,14 @@ pub fn take_presentation_feedback(
 ) -> OutputPresentationFeedback {
     let mut output_presentation_feedback = OutputPresentationFeedback::new(output);
 
-    space.elements().for_each(|window| {
-        if space.outputs_for_element(window).contains(output) {
-            window.take_presentation_feedback(
-                &mut output_presentation_feedback,
-                surface_primary_scanout_output,
-                |surface, _| {
-                    surface_presentation_feedback_flags_from_states(surface, None, render_element_states)
-                },
-            );
-        }
+    space.elements_for_output(output).for_each(|window| {
+        window.take_presentation_feedback(
+            &mut output_presentation_feedback,
+            surface_primary_scanout_output,
+            |surface, _| {
+                surface_presentation_feedback_flags_from_states(surface, None, render_element_states)
+            },
+        );
     });
     let map = smithay::desktop::layer_map_for_output(output);
     for layer_surface in map.layers() {

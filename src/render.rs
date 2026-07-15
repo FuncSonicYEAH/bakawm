@@ -11,11 +11,16 @@ use smithay::{
             },
         },
     },
-    desktop::space::{
-        ConstrainBehavior, ConstrainReference, Space, SpaceRenderElements, constrain_space_element,
+    desktop::{
+        layer_map_for_output,
+        space::{
+            ConstrainBehavior, ConstrainReference, Space, SpaceRenderElements,
+            constrain_space_element,
+        },
     },
     output::Output,
-    utils::{Point, Rectangle, Size},
+    utils::{Point, Rectangle, Scale, Size},
+    wayland::shell::wlr_layer::Layer as WlrLayer,
 };
 
 #[cfg(feature = "debug")]
@@ -90,7 +95,8 @@ where
 
     let preview_padding = 10;
 
-    let elements_on_space = space.elements_for_output(output).count();
+    let elements: Vec<_> = space.elements_for_output(output).collect();
+    let elements_on_space = elements.len();
     let output_scale = output.current_scale().fractional_scale();
     let output_transform = output.current_transform();
     let output_size = output
@@ -112,8 +118,8 @@ where
         f64::round(output_size.h / rows) as i32 - preview_padding * 2,
     ));
 
-    space
-        .elements_for_output(output)
+    elements
+        .into_iter()
         .enumerate()
         .flat_map(move |(element_index, window)| {
             let column = element_index % elements_per_row;
@@ -175,18 +181,67 @@ where
             .map(OutputRenderElements::from)
             .collect::<Vec<_>>();
 
-        if show_window_preview && space.elements_for_output(output).count() > 0 {
+        if show_window_preview && space.elements_for_output(output).next().is_some() {
             output_render_elements.extend(space_preview_elements(renderer, space, output));
         }
 
-        let space_elements = smithay::desktop::space::space_render_elements::<R, WindowElement, _>(
-            renderer,
-            [space],
-            output,
-            1.0,
-        )
-        .expect("output without mode?");
-        output_render_elements.extend(space_elements.into_iter().map(OutputRenderElements::Space));
+        let output_scale = output.current_scale().fractional_scale();
+        let layer_map = layer_map_for_output(output);
+
+        // Render layer-shell surfaces in the correct z-order.
+        //
+        // smithay's `space_render_elements` mixes the Background and Bottom layers together
+        // relying on insertion order, which breaks when the wallpaper (background) starts
+        // after the bar (bottom) and ends up rendered on top of it. We render each layer
+        // explicitly in the correct stacking order instead.
+        //
+        // `render_output_internal` draws elements via `iter().rev()`, so elements at the end
+        // of the vec are drawn first (bottom) and elements at the start are drawn last (top).
+        // Final vec order (top -> bottom):
+        //   [custom, overlay, top, window, bottom, background]
+        let render_layer = |renderer: &mut R,
+                            layer: WlrLayer,
+                            elements: &mut Vec<OutputRenderElements<R, WindowRenderElement>>| {
+            let surfaces: Vec<_> = layer_map.layers_on(layer).collect();
+            for surface in surfaces {
+                if let Some(geo) = layer_map.layer_geometry(surface) {
+                    let rendered: Vec<WaylandSurfaceRenderElement<R>> =
+                        AsRenderElements::<R>::render_elements(
+                            surface,
+                            renderer,
+                            geo.loc.to_physical_precise_round(output_scale),
+                            Scale::from(output_scale),
+                            1.0,
+                        );
+                    elements.extend(
+                        rendered
+                            .into_iter()
+                            .map(|e| OutputRenderElements::Space(SpaceRenderElements::Surface(e))),
+                    );
+                }
+            }
+        };
+
+        // Upper layers (rendered on top of windows)
+        render_layer(renderer, WlrLayer::Overlay, &mut output_render_elements);
+        render_layer(renderer, WlrLayer::Top, &mut output_render_elements);
+
+        // Windows
+        if let Some(output_geo) = space.output_geometry(output) {
+            output_render_elements.extend(
+                space
+                    .render_elements_for_region(renderer, &output_geo, output_scale, 1.0)
+                    .into_iter()
+                    .map(|e| {
+                        OutputRenderElements::Space(SpaceRenderElements::Element(Wrap::from(e)))
+                    }),
+            );
+        }
+
+        // Lower layers (rendered below windows). Background is the bottom-most layer, so it
+        // must appear last in the vec (drawn first).
+        render_layer(renderer, WlrLayer::Bottom, &mut output_render_elements);
+        render_layer(renderer, WlrLayer::Background, &mut output_render_elements);
 
         (output_render_elements, CLEAR_COLOR)
     }

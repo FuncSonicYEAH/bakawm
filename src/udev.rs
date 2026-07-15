@@ -1629,6 +1629,9 @@ impl AnvilState<UdevData> {
                     Transform::Normal,
                     None,
                 );
+                if pointer_images.len() > 64 {
+                    pointer_images.drain(0..pointer_images.len() - 32);
+                }
                 pointer_images.push((frame, buffer.clone()));
                 buffer
             });
@@ -1832,6 +1835,9 @@ impl AnvilState<UdevData> {
                     Transform::Normal,
                     None,
                 );
+                if pointer_images.len() > 64 {
+                    pointer_images.drain(0..pointer_images.len() - 32);
+                }
                 pointer_images.push((frame, buffer.clone()));
                 buffer
             });

@@ -128,7 +128,6 @@ pub fn render_to_dmabuf(
         damage_tracker.mode().try_into().unwrap();
 
     let dmabuf_size = dmabuf.size();
-    tracing::info!("render_to_dmabuf: dmabuf_size={:?}, tracker_size={:?}, elements={}", dmabuf_size, size, elements.len());
     anyhow::ensure!(
         dmabuf_size.w == size.w && dmabuf_size.h == size.h,
         "invalid buffer size: dmabuf={:?} expected={:?}",
@@ -154,7 +153,7 @@ pub fn render_to_dmabuf(
             anyhow::anyhow!("error rendering to dmabuf: {:?}", e)
         })?;
 
-    tracing::info!("render_to_dmabuf: render_output_with_states completed, damage={:?}", res.damage);
+    tracing::trace!("render_to_dmabuf: completed, damage={:?}", res.damage);
 
     Ok(res.sync)
 }
