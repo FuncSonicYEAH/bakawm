@@ -47,22 +47,11 @@ impl<BackendData: Backend> XdgShellHandler for AnvilState<BackendData> {
         let window = WindowElement(Window::new_wayland_window(surface.clone()));
         place_new_window(&mut self.space, self.pointer.current_location(), &window, true);
 
-        {
-            let mut ws = window.decoration_state();
-            ws.border.set_colors(
-                self.config.window.border.color,
-                self.config.window.border.inactive_color,
-            );
-            ws.border.redraw(
-                0,
-                0,
-                self.config.window.border.width,
-                self.config.window.border.inactive_color,
-            );
-            ws.corner_radius = self.config.window.corner_radius;
-            ws.shadow = self.config.window.shadow;
-        }
+        // Apply window config (including window-rule overrides)
+        window.apply_config(&self.config);
 
+        // Note: prefer_no_csd can't be checked per-rule here since app_id/title
+        // are not yet available. The global config is used at creation time.
         if self.config.window.prefer_no_csd {
             surface.with_pending_state(|state| {
                 state.states.set(xdg_toplevel::State::TiledTop);
@@ -74,6 +63,14 @@ impl<BackendData: Backend> XdgShellHandler for AnvilState<BackendData> {
 
         compositor::add_post_commit_hook(surface.wl_surface(), |state: &mut Self, _, surface| {
             handle_toplevel_commit(&mut state.space, surface);
+            // Re-apply window rules in case app_id/title changed
+            if let Some(window) = state
+                .space
+                .elements()
+                .find(|w| w.wl_surface().as_deref() == Some(surface))
+            {
+                window.apply_config(&state.config);
+            }
         });
     }
 

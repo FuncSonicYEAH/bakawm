@@ -227,7 +227,7 @@ impl Backend for UdevData {
         pointer_location: Point<f64, Logical>,
         cursor_status: &CursorImageStatus,
         show_window_preview: bool,
-        blur: crate::config::BlurConfig,
+        config: &crate::config::Config,
         now: Duration,
     ) -> Option<crate::state::CapturedFrame> {
         use smithay::backend::allocator::Fourcc;
@@ -320,7 +320,7 @@ impl Backend for UdevData {
         }
 
         let (elements, _clear_color) =
-            output_elements(output, space, custom_elements, &mut renderer, show_window_preview, blur);
+            output_elements(output, space, custom_elements, &mut renderer, show_window_preview, config);
 
         let fourcc = Fourcc::Abgr8888;
         let buffer_size = size.to_logical(1).to_buffer(1, Transform::Normal);
@@ -1836,7 +1836,7 @@ impl AnvilState<UdevData> {
                 &self.dnd_icon,
                 &mut self.cursor_status,
                 self.show_window_preview,
-                self.config.blur,
+                &self.config,
             )
         };
 
@@ -1853,7 +1853,7 @@ impl AnvilState<UdevData> {
                 &self.backend_data.pointer_element,
                 &output,
                 target_presentation_time,
-                self.config.blur,
+                &self.config,
             ));
             casts_to_stop.extend(crate::screencasting::render_windows_for_screen_cast_inner(
                 &mut self.screencasting,
@@ -1966,7 +1966,7 @@ impl AnvilState<UdevData> {
             pointer_location,
             &self.cursor_status,
             self.show_window_preview,
-            self.config.blur,
+            &self.config,
             now.into(),
         ) else {
             warn!("Failed to capture screenshot");
@@ -1998,7 +1998,7 @@ fn render_surface(
     dnd_icon: &Option<DndIcon>,
     cursor_status: &mut CursorImageStatus,
     show_window_preview: bool,
-    blur_config: crate::config::BlurConfig,
+    config: &crate::config::Config,
 ) -> Result<(bool, RenderElementStates), SwapBuffersError> {
     let output_geometry = space.output_geometry(output).unwrap();
     let scale = Scale::from(output.current_scale().fractional_scale());
@@ -2076,7 +2076,7 @@ fn render_surface(
     }
 
     let (elements, clear_color) =
-        output_elements(output, space, custom_elements, renderer, show_window_preview, blur_config);
+        output_elements(output, space, custom_elements, renderer, show_window_preview, config);
 
     let frame_mode = if surface.disable_direct_scanout {
         FrameFlags::empty()

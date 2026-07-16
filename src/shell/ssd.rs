@@ -379,4 +379,67 @@ impl WindowElement {
     pub fn set_ssd(&self, _ssd: bool) {
         self.decoration_state().is_ssd = false;
     }
+
+    /// Apply global and per-rule configuration to this window's decoration state.
+    /// Returns true if the config changed the decoration state.
+    /// Call this after mapping a window and after config reload.
+    pub fn apply_config(&self, config: &crate::config::Config) -> bool {
+        use smithay::desktop::WindowSurface;
+        use smithay::wayland::compositor::with_states;
+        use smithay::wayland::shell::xdg::XdgToplevelSurfaceData;
+
+        let (title, app_id): (Option<String>, Option<String>) = match self.0.underlying_surface() {
+            WindowSurface::Wayland(toplevel) => with_states(toplevel.wl_surface(), |states| {
+                let role = states
+                    .data_map
+                    .get::<XdgToplevelSurfaceData>()
+                    .unwrap()
+                    .lock()
+                    .unwrap();
+                (role.title.clone(), role.app_id.clone())
+            }),
+            #[cfg(feature = "xwayland")]
+            WindowSurface::X11(surface) => (Some(surface.title()), None),
+            #[cfg(not(feature = "xwayland"))]
+            _ => (None, None),
+        };
+
+        let rule = config.find_window_rule(app_id.as_deref(), title.as_deref());
+
+        // Use the window config from the rule (merged over global), or just global
+        let win_config = match rule.and_then(|r| r.window.as_ref()) {
+            Some(partial) => partial.merge_over(&config.window),
+            None => config.window.clone(),
+        };
+
+        let mut state = self.decoration_state();
+
+        // Check if anything actually changed
+        let changed = state.border.active_color != win_config.border.color
+            || state.border.inactive_color != win_config.border.inactive_color
+            || state.shadow != win_config.shadow
+            || state.corner_radius != win_config.corner_radius;
+
+        if !changed {
+            return false;
+        }
+
+        // Apply border config
+        state.border.active_color = win_config.border.color;
+        state.border.inactive_color = win_config.border.inactive_color;
+
+        // Apply shadow config
+        state.shadow = win_config.shadow;
+
+        // Apply corner radius
+        state.corner_radius = win_config.corner_radius;
+
+        // Reset shader caches since config may have changed
+        state.has_border_shader = None;
+        state.has_shadow_shader = None;
+        state.cached_border_element = None;
+        state.cached_shadow_element = None;
+
+        true
+    }
 }

@@ -20,6 +20,8 @@ pub struct Config {
     pub cursor: CursorConfig,
     pub window: WindowConfig,
     pub blur: BlurConfig,
+    pub window_rules: Vec<WindowRule>,
+    pub layer_rules: Vec<LayerRule>,
     pub init_commands: Vec<String>,
     pub init_shell_commands: Vec<String>,
 }
@@ -186,6 +188,7 @@ pub struct BlurConfig {
     pub enable: bool,
     pub passes: u8,
     pub offset: f64,
+    pub xray: bool,
 }
 
 impl Default for BorderConfig {
@@ -217,8 +220,64 @@ impl Default for BlurConfig {
             enable: true,
             passes: 2,
             offset: 1.0,
+            xray: false,
         }
     }
+}
+
+/// Rule that matches windows by app_id and/or title and applies overrides.
+#[derive(Debug, Clone)]
+pub struct WindowRule {
+    /// Match by app-id (substring match). None means match any.
+    pub app_id: Option<String>,
+    /// Match by title (substring match). None means match any.
+    pub title: Option<String>,
+    /// Override window settings. Only non-None fields override the global config.
+    pub window: Option<PartialWindowConfig>,
+    /// Override blur settings for matching windows.
+    pub blur: Option<BlurOverride>,
+}
+
+/// Partial window config used in window rules.
+/// Only non-None fields override the corresponding global config values.
+#[derive(Debug, Clone, Default)]
+pub struct PartialWindowConfig {
+    pub prefer_no_csd: Option<bool>,
+    pub border: Option<BorderConfig>,
+    pub shadow: Option<ShadowConfig>,
+    pub corner_radius: Option<CornerRadius>,
+    pub resize_modifier: Option<String>,
+}
+
+impl PartialWindowConfig {
+    /// Apply this partial config on top of a base WindowConfig, returning the merged result.
+    pub fn merge_over(&self, base: &WindowConfig) -> WindowConfig {
+        WindowConfig {
+            prefer_no_csd: self.prefer_no_csd.unwrap_or(base.prefer_no_csd),
+            border: self.border.as_ref().unwrap_or(&base.border).clone(),
+            shadow: self.shadow.unwrap_or(base.shadow),
+            corner_radius: self.corner_radius.unwrap_or(base.corner_radius),
+            resize_modifier: self.resize_modifier.as_ref().unwrap_or(&base.resize_modifier).clone(),
+        }
+    }
+}
+
+/// Blur override within a rule.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct BlurOverride {
+    pub enable: bool,
+    pub passes: Option<u8>,
+    pub offset: Option<f64>,
+    pub xray: Option<bool>,
+}
+
+/// Rule that matches layer-shell surfaces by namespace and applies overrides.
+#[derive(Debug, Clone)]
+pub struct LayerRule {
+    /// Match by namespace (substring match). Empty means match any.
+    pub namespace: Option<String>,
+    /// Override blur settings for matching layer surfaces.
+    pub blur: Option<BlurOverride>,
 }
 
 impl Default for WindowConfig {
@@ -320,9 +379,29 @@ impl Default for Config {
             },
             window: WindowConfig::default(),
             blur: BlurConfig::default(),
+            window_rules: Vec::new(),
+            layer_rules: Vec::new(),
             init_commands: Vec::new(),
             init_shell_commands: Vec::new(),
         }
+    }
+}
+
+impl Config {
+    /// Find the first window rule matching the given app_id and title.
+    pub fn find_window_rule(&self, app_id: Option<&str>, title: Option<&str>) -> Option<&WindowRule> {
+        self.window_rules.iter().find(|rule| {
+            let matches = match (&rule.app_id, &rule.title) {
+                (Some(rule_id), Some(rule_title)) => {
+                    app_id.map_or(false, |id| id.contains(rule_id))
+                        && title.map_or(false, |t| t.contains(rule_title))
+                }
+                (Some(rule_id), None) => app_id.map_or(false, |id| id.contains(rule_id)),
+                (None, Some(rule_title)) => title.map_or(false, |t| t.contains(rule_title)),
+                (None, None) => true,
+            };
+            matches
+        })
     }
 }
 
@@ -514,6 +593,14 @@ fn parse_lua_config(path: &PathBuf) -> LuaResult<Config> {
         config.blur = parse_blur(&blur)?;
     }
 
+    if let Value::Table(window_rules) = result.get::<Value>("window_rules")? {
+        config.window_rules = parse_window_rules(&window_rules)?;
+    }
+
+    if let Value::Table(layer_rules) = result.get::<Value>("layer_rules")? {
+        config.layer_rules = parse_layer_rules(&layer_rules)?;
+    }
+
     if let Value::Function(init_fn) = result.get::<Value>("init")? {
         init_fn.call::<()>(())?;
     }
@@ -657,56 +744,13 @@ fn parse_window(table: &Table) -> LuaResult<WindowConfig> {
     };
 
     let border = if let Value::Table(border_table) = table.get::<Value>("border")? {
-        let width: Option<f64> = border_table.get("width").ok();
-        let color = if let Value::Table(color_table) = border_table.get::<Value>("color")? {
-            let r: f32 = color_table.get("r")?;
-            let g: f32 = color_table.get("g")?;
-            let b: f32 = color_table.get("b")?;
-            let a: Option<f32> = color_table.get("a").ok();
-            [r, g, b, a.unwrap_or(1.0)]
-        } else {
-            [0.0, 0.0, 0.0, 1.0]
-        };
-        let inactive_color = if let Value::Table(color_table) = border_table.get::<Value>("inactive_color")? {
-            let r: f32 = color_table.get("r")?;
-            let g: f32 = color_table.get("g")?;
-            let b: f32 = color_table.get("b")?;
-            let a: Option<f32> = color_table.get("a").ok();
-            [r, g, b, a.unwrap_or(1.0)]
-        } else {
-            [0.3, 0.3, 0.3, 1.0]
-        };
-        BorderConfig {
-            width: width.unwrap_or(0.0),
-            color,
-            inactive_color,
-        }
+        parse_border_config(&border_table)?
     } else {
         BorderConfig::default()
     };
 
     let shadow = if let Value::Table(shadow_table) = table.get::<Value>("shadow")? {
-        let on: Option<bool> = shadow_table.get("enable").ok();
-        let offset_x: Option<f64> = shadow_table.get("offset_x").ok();
-        let offset_y: Option<f64> = shadow_table.get("offset_y").ok();
-        let softness: Option<f64> = shadow_table.get("softness").ok();
-        let spread: Option<f64> = shadow_table.get("spread").ok();
-        let color = if let Value::Table(color_table) = shadow_table.get::<Value>("color")? {
-            let r: f32 = color_table.get("r")?;
-            let g: f32 = color_table.get("g")?;
-            let b: f32 = color_table.get("b")?;
-            let a: Option<f32> = color_table.get("a").ok();
-            [r, g, b, a.unwrap_or(0.47)]
-        } else {
-            [0.0, 0.0, 0.0, 0.47]
-        };
-        let mut sc = ShadowConfig { color, ..ShadowConfig::default() };
-        if let Some(on) = on { sc.enable = on; }
-        if let Some(offset_x) = offset_x { sc.offset_x = offset_x; }
-        if let Some(offset_y) = offset_y { sc.offset_y = offset_y; }
-        if let Some(softness) = softness { sc.softness = softness; }
-        if let Some(spread) = spread { sc.spread = spread; }
-        sc
+        parse_shadow_config(&shadow_table)?
     } else {
         ShadowConfig::default()
     };
@@ -738,7 +782,166 @@ fn parse_blur(table: &Table) -> LuaResult<BlurConfig> {
     if let Ok(offset) = table.get::<f64>("offset") {
         blur.offset = offset;
     }
+    if let Ok(xray) = table.get::<bool>("xray") {
+        blur.xray = xray;
+    }
     Ok(blur)
+}
+
+fn parse_blur_override(table: &Table) -> LuaResult<BlurOverride> {
+    let enable: bool = table.get("enable")?;
+    let passes = table.get::<u8>("passes").ok();
+    let offset = table.get::<f64>("offset").ok();
+    let xray = table.get::<bool>("xray").ok();
+    Ok(BlurOverride {
+        enable,
+        passes,
+        offset,
+        xray,
+    })
+}
+
+fn parse_window_rules(table: &Table) -> LuaResult<Vec<WindowRule>> {
+    let mut rules = Vec::new();
+    for pair in table.sequence_values::<Table>() {
+        let t = pair?;
+
+        let app_id: Option<String> = t.get("app_id").ok();
+        let title: Option<String> = t.get("title").ok();
+
+        let window = if let Value::Table(window_table) = t.get::<Value>("window")? {
+            Some(parse_partial_window(&window_table)?)
+        } else {
+            None
+        };
+
+        let blur = if let Value::Table(blur_table) = t.get::<Value>("blur")? {
+            Some(parse_blur_override(&blur_table)?)
+        } else {
+            None
+        };
+
+        rules.push(WindowRule {
+            app_id,
+            title,
+            window,
+            blur,
+        });
+    }
+    Ok(rules)
+}
+
+/// Parse a partial window config where all fields are optional.
+/// Only fields explicitly set in the Lua table will be Some.
+fn parse_partial_window(table: &Table) -> LuaResult<PartialWindowConfig> {
+    let prefer_no_csd: Option<bool> = table.get("prefer_no_csd").ok();
+    let resize_modifier: Option<String> = table.get("resize_modifier").ok();
+
+    let corner_radius = if let Value::Table(cr_table) = table.get::<Value>("corner_radius")? {
+        let top_left: Option<f32> = cr_table.get("top_left").ok();
+        let top_right: Option<f32> = cr_table.get("top_right").ok();
+        let bottom_right: Option<f32> = cr_table.get("bottom_right").ok();
+        let bottom_left: Option<f32> = cr_table.get("bottom_left").ok();
+        Some(CornerRadius {
+            top_left: top_left.unwrap_or(0.0),
+            top_right: top_right.unwrap_or(0.0),
+            bottom_right: bottom_right.unwrap_or(0.0),
+            bottom_left: bottom_left.unwrap_or(0.0),
+        })
+    } else {
+        table.get::<f32>("corner_radius").ok().map(CornerRadius::from)
+    };
+
+    let border = if let Value::Table(border_table) = table.get::<Value>("border")? {
+        Some(parse_border_config(&border_table)?)
+    } else {
+        None
+    };
+
+    let shadow = if let Value::Table(shadow_table) = table.get::<Value>("shadow")? {
+        Some(parse_shadow_config(&shadow_table)?)
+    } else {
+        None
+    };
+
+    Ok(PartialWindowConfig {
+        prefer_no_csd,
+        border,
+        shadow,
+        corner_radius,
+        resize_modifier,
+    })
+}
+
+fn parse_layer_rules(table: &Table) -> LuaResult<Vec<LayerRule>> {
+    let mut rules = Vec::new();
+    for pair in table.sequence_values::<Table>() {
+        let t = pair?;
+
+        let namespace: Option<String> = t.get("namespace").ok();
+
+        let blur = if let Value::Table(blur_table) = t.get::<Value>("blur")? {
+            Some(parse_blur_override(&blur_table)?)
+        } else {
+            None
+        };
+
+        rules.push(LayerRule { namespace, blur });
+    }
+    Ok(rules)
+}
+
+/// Helper: parse a border config table (reused by window rules).
+fn parse_border_config(table: &Table) -> LuaResult<BorderConfig> {
+    let width: Option<f64> = table.get("width").ok();
+    let color = if let Value::Table(color_table) = table.get::<Value>("color")? {
+        let r: f32 = color_table.get("r")?;
+        let g: f32 = color_table.get("g")?;
+        let b: f32 = color_table.get("b")?;
+        let a: Option<f32> = color_table.get("a").ok();
+        [r, g, b, a.unwrap_or(1.0)]
+    } else {
+        [0.0, 0.0, 0.0, 1.0]
+    };
+    let inactive_color = if let Value::Table(color_table) = table.get::<Value>("inactive_color")? {
+        let r: f32 = color_table.get("r")?;
+        let g: f32 = color_table.get("g")?;
+        let b: f32 = color_table.get("b")?;
+        let a: Option<f32> = color_table.get("a").ok();
+        [r, g, b, a.unwrap_or(1.0)]
+    } else {
+        [0.3, 0.3, 0.3, 1.0]
+    };
+    Ok(BorderConfig {
+        width: width.unwrap_or(0.0),
+        color,
+        inactive_color,
+    })
+}
+
+/// Helper: parse a shadow config table (reused by window rules).
+fn parse_shadow_config(table: &Table) -> LuaResult<ShadowConfig> {
+    let on: Option<bool> = table.get("enable").ok();
+    let offset_x: Option<f64> = table.get("offset_x").ok();
+    let offset_y: Option<f64> = table.get("offset_y").ok();
+    let softness: Option<f64> = table.get("softness").ok();
+    let spread: Option<f64> = table.get("spread").ok();
+    let color = if let Value::Table(color_table) = table.get::<Value>("color")? {
+        let r: f32 = color_table.get("r")?;
+        let g: f32 = color_table.get("g")?;
+        let b: f32 = color_table.get("b")?;
+        let a: Option<f32> = color_table.get("a").ok();
+        [r, g, b, a.unwrap_or(0.47)]
+    } else {
+        [0.0, 0.0, 0.0, 0.47]
+    };
+    let mut sc = ShadowConfig { color, ..ShadowConfig::default() };
+    if let Some(on) = on { sc.enable = on; }
+    if let Some(offset_x) = offset_x { sc.offset_x = offset_x; }
+    if let Some(offset_y) = offset_y { sc.offset_y = offset_y; }
+    if let Some(softness) = softness { sc.softness = softness; }
+    if let Some(spread) = spread { sc.spread = spread; }
+    Ok(sc)
 }
 
 #[cfg(test)]

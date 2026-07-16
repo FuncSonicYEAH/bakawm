@@ -978,32 +978,10 @@ impl<BackendData: Backend + 'static> AnvilState<BackendData> {
             self.backend_data.reload_cursor(cursor_theme, cursor_size);
         }
 
-        let window_config = &self.config.window;
-        if window_config.border != old_config.window.border
-            || window_config.shadow != old_config.window.shadow
-            || window_config.corner_radius != old_config.window.corner_radius
-        {
-            self.space.elements().for_each(|window| {
-                let mut ws = window.decoration_state();
-                ws.border.set_colors(
-                    window_config.border.color,
-                    window_config.border.inactive_color,
-                );
-                let color = if ws.border.is_active {
-                    window_config.border.color
-                } else {
-                    window_config.border.inactive_color
-                };
-                ws.border.redraw(
-                    0,
-                    0,
-                    window_config.border.width,
-                    color,
-                );
-                ws.corner_radius = window_config.corner_radius;
-                ws.shadow = window_config.shadow;
-            });
-        }
+        // Apply window config (including window-rule overrides) to all windows
+        self.space.elements().for_each(|window| {
+            window.apply_config(&self.config);
+        });
     }
 
     pub fn update_border_focus(&mut self, target: Option<&KeyboardFocusTarget>) {
@@ -1429,7 +1407,7 @@ pub trait Backend {
         pointer_location: Point<f64, Logical>,
         cursor_status: &CursorImageStatus,
         show_window_preview: bool,
-        blur: crate::config::BlurConfig,
+        config: &crate::config::Config,
         now: Duration,
     ) -> Option<CapturedFrame> {
         None
@@ -1709,7 +1687,7 @@ impl<BackendData: Backend + 'static> AnvilState<BackendData> {
             pointer_location,
             &self.cursor_status,
             self.show_window_preview,
-            self.config.blur,
+            &self.config,
             now.into(),
         );
 

@@ -32,7 +32,7 @@ use smithay::{
 #[cfg(feature = "debug")]
 use crate::drawing::FpsElement;
 use crate::{
-    config::BlurConfig,
+    config::{BlurConfig, Config},
     drawing::{CLEAR_COLOR, CLEAR_COLOR_FULLSCREEN, PointerRenderElement},
     render_helpers::{blur::BlurOptions, framebuffer_effect::FramebufferEffectElement},
     shell::{FullscreenSurface, WindowElement, WindowRenderElement},
@@ -377,6 +377,113 @@ where
         })
 }
 
+/// Result of resolving the effective blur config for a window.
+struct ResolvedWindowBlur {
+    /// The effective blur configuration (global + rule overrides).
+    blur: BlurConfig,
+    /// Whether a matching window-rule explicitly forces blur for this window
+    /// (i.e. the rule has blur.enable = true). Used to force blur on windows
+    /// that don't have blur_region set via the protocol.
+    rule_forces_blur: bool,
+}
+
+/// Resolve the effective blur config for a window by checking window rules.
+///
+/// Rules are evaluated in order; the first matching rule wins. If no rule matches,
+/// the global blur config is used.
+fn resolve_window_blur(window: &WindowElement, config: &Config) -> ResolvedWindowBlur {
+    use smithay::desktop::WindowSurface;
+    use smithay::wayland::compositor::with_states;
+    use smithay::wayland::shell::xdg::XdgToplevelSurfaceData;
+
+    let (title, app_id): (Option<String>, Option<String>) = match window.0.underlying_surface() {
+        WindowSurface::Wayland(toplevel) => with_states(toplevel.wl_surface(), |states| {
+            let role = states
+                .data_map
+                .get::<XdgToplevelSurfaceData>()
+                .unwrap()
+                .lock()
+                .unwrap();
+            (role.title.clone(), role.app_id.clone())
+        }),
+        #[cfg(feature = "xwayland")]
+        WindowSurface::X11(surface) => (Some(surface.title()), None),
+        #[cfg(not(feature = "xwayland"))]
+        _ => (None, None),
+    };
+
+    for rule in &config.window_rules {
+        let matches = match (&rule.app_id, &rule.title) {
+            (Some(rule_id), Some(rule_title)) => {
+                app_id.as_ref().map_or(false, |id| id.contains(rule_id))
+                    && title.as_ref().map_or(false, |t| t.contains(rule_title))
+            }
+            (Some(rule_id), None) => {
+                app_id.as_ref().map_or(false, |id| id.contains(rule_id))
+            }
+            (None, Some(rule_title)) => {
+                title.as_ref().map_or(false, |t| t.contains(rule_title))
+            }
+            (None, None) => true,
+        };
+
+        if matches {
+            if let Some(override_blur) = &rule.blur {
+                let mut result = config.blur;
+                result.enable = override_blur.enable;
+                if let Some(passes) = override_blur.passes {
+                    result.passes = passes;
+                }
+                if let Some(offset) = override_blur.offset {
+                    result.offset = offset;
+                }
+                if let Some(xray) = override_blur.xray {
+                    result.xray = xray;
+                }
+                return ResolvedWindowBlur {
+                    blur: result,
+                    rule_forces_blur: override_blur.enable,
+                };
+            }
+            // Rule matches but has no blur override; keep looking for a rule with blur
+        }
+    }
+
+    ResolvedWindowBlur {
+        blur: config.blur,
+        rule_forces_blur: false,
+    }
+}
+
+/// Resolve the effective blur config for a layer surface by checking layer rules.
+fn resolve_layer_blur(namespace: &str, config: &Config) -> BlurConfig {
+    for rule in &config.layer_rules {
+        let matches = match &rule.namespace {
+            Some(rule_ns) => namespace.contains(rule_ns),
+            None => true,
+        };
+
+        if matches {
+            if let Some(override_blur) = &rule.blur {
+                let mut result = config.blur;
+                result.enable = override_blur.enable;
+                if let Some(passes) = override_blur.passes {
+                    result.passes = passes;
+                }
+                if let Some(offset) = override_blur.offset {
+                    result.offset = offset;
+                }
+                if let Some(xray) = override_blur.xray {
+                    result.xray = xray;
+                }
+                return result;
+            }
+        }
+    }
+
+    config.blur
+}
+
 #[profiling::function]
 pub fn output_elements<R>(
     output: &Output,
@@ -384,7 +491,7 @@ pub fn output_elements<R>(
     custom_elements: impl IntoIterator<Item = CustomRenderElements<R>>,
     renderer: &mut R,
     show_window_preview: bool,
-    blur_config: BlurConfig,
+    config: &Config,
 ) -> (
     Vec<OutputRenderElementsWithBlur<R, WindowRenderElement>>,
     Color32F,
@@ -396,6 +503,8 @@ where
     WindowRenderElement: RenderElement<R>,
     CustomRenderElements<R>: RenderElement<R>,
 {
+    let _blur_config = config.blur;
+
     if let Some(window) = output
         .user_data()
         .get::<FullscreenSurface>()
@@ -438,20 +547,16 @@ where
 
         // Render layer-shell surfaces in the correct z-order.
         //
-        // smithay's `space_render_elements` mixes the Background and Bottom layers together
-        // relying on insertion order, which breaks when the wallpaper (background) starts
-        // after the bar (bottom) and ends up rendered on top of it. We render each layer
-        // explicitly in the correct stacking order instead.
-        //
         // `render_output_internal` draws elements via `iter().rev()`, so elements at the end
         // of the vec are drawn first (bottom) and elements at the start are drawn last (top).
-        // Final vec order (top -> bottom):
-        //   [custom, overlay, top, window, blur, bottom, background]
         let render_layer = |renderer: &mut R,
                             layer: WlrLayer,
                             elements: &mut Vec<OutputRenderElementsWithBlur<R, WindowRenderElement>>| {
             let surfaces: Vec<_> = layer_map.layers_on(layer).collect();
             for surface in surfaces {
+                let namespace = surface.namespace().to_owned();
+                let layer_blur = resolve_layer_blur(&namespace, config);
+
                 if let Some(geo) = layer_map.layer_geometry(surface) {
                     let rendered: Vec<WaylandSurfaceRenderElement<R>> =
                         AsRenderElements::<R>::render_elements(
@@ -466,6 +571,21 @@ where
                             SpaceRenderElements::Surface(e),
                         ))
                     }));
+
+                    // Layer-rule blur: if a matching rule enables blur for this layer surface,
+                    // insert a blur element right after it (drawn before it in rev order).
+                    if layer_blur.enable {
+                        let geometry = geo.to_f64();
+                        let blur_elem = FramebufferEffectElement::new(
+                            geometry,
+                            output_scale,
+                            Some(BlurOptions {
+                                passes: layer_blur.passes,
+                                offset: layer_blur.offset,
+                            }),
+                        );
+                        elements.push(OutputRenderElementsWithBlur::Blur(blur_elem));
+                    }
                 }
             }
         };
@@ -474,28 +594,53 @@ where
         render_layer(renderer, WlrLayer::Overlay, &mut output_render_elements);
         render_layer(renderer, WlrLayer::Top, &mut output_render_elements);
 
-        // Windows
+        // Windows + blur
+        //
+        // xray mode controls what the blur captures behind the window:
+        //   xray ON  (default): blur only captures layer shell (background+bottom).
+        //            All blur elements are grouped after all windows in the vec,
+        //            so they are drawn after background+bottom but before windows.
+        //   xray OFF: blur captures everything behind (layer shell + other windows).
+        //            Each window's blur element is inserted right after that window
+        //            in the vec, so it captures whatever was already drawn.
+        //
+        // Vec order (top -> bottom), draw via iter().rev():
+        //   xray ON:  [custom, overlay, top, window_A, window_B, blur, bottom, background]
+        //             draw: bg → bottom → blur → B → A → top → overlay → custom
+        //   xray OFF: [custom, overlay, top, window_A, blur_A, window_B, blur_B, bottom, background]
+        //             draw: bg → bottom → blur_B → B → blur_A → A → top → overlay → custom
         if let Some(output_geo) = space.output_geometry(output) {
-            output_render_elements.extend(
-                space
-                    .render_elements_for_region(renderer, &output_geo, output_scale, 1.0)
-                    .into_iter()
-                    .map(|e| {
-                        OutputRenderElementsWithBlur::from(OutputRenderElements::Space(
-                            SpaceRenderElements::Element(Wrap::from(e)),
-                        ))
-                    }),
-            );
+            // Collect per-window blur for xray ON mode (inserted after all windows)
+            let mut xray_blur_elements: Vec<OutputRenderElementsWithBlur<R, WindowRenderElement>> = Vec::new();
 
-            // Blur elements for windows with blur regions.
-            //
-            // These are inserted after windows but before bottom/background in the vec
-            // (top -> bottom), so they are drawn after background+bottom but before windows
-            // in the reversed draw order. The blur element captures the framebuffer content
-            // (background + bottom layers) and applies a blur, then the window is drawn on top.
-            for window in space.elements_for_output(output) {
+            // Iterate windows in z-order (topmost first, matching render_elements_for_region's .rev())
+            let windows: Vec<_> = space.elements_for_output(output).collect();
+            for window in windows.iter().rev() {
+                let win_geo = match space.element_geometry(window) {
+                    Some(geo) => geo,
+                    None => continue,
+                };
+                let location = win_geo.loc.to_physical_precise_round(output_scale);
+
+                // Render this window's elements
+                let window_elements: Vec<WindowRenderElement> =
+                    AsRenderElements::<R>::render_elements(
+                        &**window,
+                        renderer,
+                        location - output_geo.loc.to_physical_precise_round(output_scale),
+                        Scale::from(output_scale),
+                        1.0,
+                    );
+
+                for elem in window_elements {
+                    output_render_elements.push(OutputRenderElementsWithBlur::from(
+                        OutputRenderElements::Space(SpaceRenderElements::Element(Wrap::from(elem))),
+                    ));
+                }
+
+                // Check if this window should have blur
                 if let Some(wl_surface) = window.wl_surface() {
-                    let has_blur = with_states(&wl_surface, |states| {
+                    let has_blur_region = with_states(&wl_surface, |states| {
                         states
                             .cached_state
                             .get::<BackgroundEffectSurfaceCachedState>()
@@ -503,13 +648,21 @@ where
                             .blur_region
                             .is_some()
                     });
-                    if has_blur && blur_config.enable {
-                        // Use `space.element_bbox` to get the window bbox in space-global
-                        // coordinates. `SpaceElement::bbox(&window)` returns the window's
-                        // own bbox (loc relative to the window, usually (0,0)), not its
-                        // position in the space.
-                        let bbox = space.element_bbox(&window).unwrap_or_else(|| {
-                            SpaceElement::bbox(&window)
+
+                    let effective_blur = resolve_window_blur(window, config);
+
+                    // Determine if blur should be applied:
+                    // - has blur_region (protocol request): apply unless a rule disables it
+                    // - no blur_region but a matching rule explicitly enables blur: force blur
+                    let should_blur = if has_blur_region {
+                        true // protocol request — apply unless rule disables (effective_blur.enable == false)
+                    } else {
+                        effective_blur.rule_forces_blur // rule explicitly enabled blur for this window
+                    };
+
+                    if should_blur && effective_blur.blur.enable {
+                        let bbox = space.element_bbox(window).unwrap_or_else(|| {
+                            SpaceElement::bbox(window)
                         });
                         let geometry = Rectangle::new(
                             bbox.loc - output_geo.loc,
@@ -520,15 +673,26 @@ where
                             geometry,
                             output_scale,
                             Some(BlurOptions {
-                                passes: blur_config.passes,
-                                offset: blur_config.offset,
+                                passes: effective_blur.blur.passes,
+                                offset: effective_blur.blur.offset,
                             }),
                         );
-                        output_render_elements
-                            .push(OutputRenderElementsWithBlur::Blur(blur_elem));
+
+                        if effective_blur.blur.xray {
+                            // xray ON: group all blur elements together
+                            xray_blur_elements
+                                .push(OutputRenderElementsWithBlur::Blur(blur_elem));
+                        } else {
+                            // xray OFF: insert right after this window
+                            output_render_elements
+                                .push(OutputRenderElementsWithBlur::Blur(blur_elem));
+                        }
                     }
                 }
             }
+
+            // Append xray blur elements after all windows (drawn after bg+bottom but before windows)
+            output_render_elements.extend(xray_blur_elements);
         }
 
         // Lower layers (rendered below windows). Background is the bottom-most layer, so it
@@ -550,7 +714,7 @@ pub fn render_output<'a, 'd, R>(
     damage_tracker: &'d mut OutputDamageTracker,
     age: usize,
     show_window_preview: bool,
-    blur_config: BlurConfig,
+    config: &Config,
 ) -> Result<RenderOutputResult<'d>, OutputDamageTrackerError<R::Error>>
 where
     R: Renderer + ImportAll + ImportMem,
@@ -562,6 +726,6 @@ where
     OutputRenderElementsWithBlur<R, WindowRenderElement>: RenderElement<R>,
 {
     let (elements, clear_color) =
-        output_elements(output, space, custom_elements, renderer, show_window_preview, blur_config);
+        output_elements(output, space, custom_elements, renderer, show_window_preview, config);
     damage_tracker.render_output(renderer, framebuffer, age, &elements, clear_color)
 }

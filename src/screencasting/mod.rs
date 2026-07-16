@@ -188,7 +188,7 @@ pub fn render_for_screen_cast_inner(
     pointer_element: &PointerElement,
     output: &Output,
     target_presentation_time: Duration,
-    blur_config: crate::config::BlurConfig,
+    blur_config: &crate::config::Config,
 ) -> Vec<CastSessionId> {
     if screencasting.casts.is_empty() {
         return Vec::new();
@@ -646,7 +646,7 @@ impl AnvilState<UdevData> {
             pointer_element,
             output,
             target_presentation_time,
-            self.config.blur,
+            &self.config,
         );
         for id in casts_to_stop {
             self.stop_cast(id);

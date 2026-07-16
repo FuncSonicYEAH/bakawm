@@ -130,7 +130,70 @@ return {
         passes = 2,
         -- Blur offset/spread in pixels
         offset = 1.0,
+        -- Xray mode: when enabled, blur only captures layer shell surfaces
+        -- (background/bottom layers like wallpaper and panels). When disabled,
+        -- blur captures everything behind the window including other windows.
+        -- Default: false (blur captures all content behind the window)
+        xray = false,
     },
+
+    -- Window rules
+    -- Apply overrides to windows matching by app_id and/or title.
+    -- Rules are evaluated in order; the first matching rule wins.
+    -- The `window` field uses the same format as the global `window` config above.
+    -- window_rules = {
+    --     {
+    --         app_id = "kitty",
+    --         window = {
+    --             border = { width = 2, color = { r = 0.2, g = 0.5, b = 0.8, a = 1.0 },
+    --                       inactive_color = { r = 0.1, g = 0.3, b = 0.5, a = 1.0 } },
+    --             shadow = { enable = true, offset_x = -10, offset_y = -10, softness = 20, spread = 5,
+    --                        color = { r = 0.0, g = 0.0, b = 0.0, a = 0.47 } },
+    --             corner_radius = 10,
+    --         },
+    --         blur = { enable = true, passes = 2, offset = 1.0, xray = true },
+    --     },
+    --     {
+    --         app_id = "firefox",
+    --         window = { border = { width = 0 }, shadow = { enable = false } },
+    --         blur = { enable = false },
+    --     },
+    --     {
+    --         -- Match by title substring
+    --         title = "Visual Studio Code",
+    --         window = { corner_radius = 12, border = { width = 1, color = { r = 0.3, g = 0.3, b = 0.3, a = 1.0 } } },
+    --         blur = { enable = true, xray = false },
+    --     },
+    --     {
+    --         -- Match by both app_id AND title
+    --         app_id = "discord",
+    --         title = "Discord",
+    --         window = { border = { width = 3, color = { r = 0.58, g = 0.27, b = 0.98, a = 1.0 } },
+    --                    shadow = { enable = true }, corner_radius = 8 },
+    --         blur = { enable = true, passes = 3, xray = true },
+    --     },
+    -- },
+    window_rules = {},
+
+    -- Layer rules
+    -- Apply overrides to layer-shell surfaces matching by namespace.
+    -- Rules are evaluated in order; the first matching rule wins.
+    -- layer_rules = {
+    --     {
+    --         namespace = "waybar",
+    --         blur = { enable = true, passes = 2, offset = 1.0, xray = true },
+    --     },
+    --     {
+    --         namespace = "rofi",
+    --         blur = { enable = true, passes = 3, offset = 2.0, xray = true },
+    --     },
+    --     {
+    --         -- Match any layer surface (wildcard)
+    --         namespace = "swaync",
+    --         blur = { enable = true, passes = 2, xray = true },
+    --     },
+    -- },
+    layer_rules = {},
 
     -- Initialization function
     -- Called when the compositor starts up.

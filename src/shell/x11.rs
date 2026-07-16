@@ -69,21 +69,9 @@ impl<BackendData: Backend> XwmHandler for AnvilState<BackendData> {
         };
         xsurface.configure(Some(bbox)).unwrap();
         window.set_ssd(!xsurface.is_decorated());
-        {
-            let mut ws = window.decoration_state();
-            ws.border.set_colors(
-                self.config.window.border.color,
-                self.config.window.border.inactive_color,
-            );
-            ws.border.redraw(
-                0,
-                0,
-                self.config.window.border.width,
-                self.config.window.border.inactive_color,
-            );
-            ws.corner_radius = self.config.window.corner_radius;
-            ws.shadow = self.config.window.shadow;
-        }
+
+        // Apply window config (including window-rule overrides)
+        window.apply_config(&self.config);
     }
 
     fn mapped_override_redirect_window(&mut self, _xwm: XwmId, window: X11Surface) {

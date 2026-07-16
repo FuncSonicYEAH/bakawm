@@ -103,7 +103,7 @@ impl Backend for X11Data {
         pointer_location: Point<f64, Logical>,
         cursor_status: &CursorImageStatus,
         show_window_preview: bool,
-        blur: crate::config::BlurConfig,
+        config: &crate::config::Config,
         _now: Duration,
     ) -> Option<crate::state::CapturedFrame> {
         use smithay::backend::allocator::Fourcc;
@@ -154,7 +154,7 @@ impl Backend for X11Data {
         }
 
         let (elements, _clear_color) =
-            output_elements(output, space, custom_elements, renderer, show_window_preview, blur);
+            output_elements(output, space, custom_elements, renderer, show_window_preview, config);
 
         let fourcc = Fourcc::Abgr8888;
         let buffer_size = size.to_logical(1).to_buffer(1, Transform::Normal);
@@ -555,7 +555,7 @@ pub fn run_x11() {
                 &mut backend_data.damage_tracker,
                 age.into(),
                 state.show_window_preview,
-                state.config.blur, // blur config
+                &state.config,
             );
 
             match render_res {
