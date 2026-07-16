@@ -17,7 +17,7 @@ use tracing::warn;
 use crate::bakawm_render_elements;
 use crate::dbus::mutter_screen_cast::{self, CursorMode, ScreenCastToState, StreamTargetId};
 use crate::drawing::{PointerElement, PointerRenderElement};
-use crate::render::OutputRenderElements;
+use crate::render::OutputRenderElementsWithBlur;
 use crate::shell::WindowRenderElement;
 use crate::state::AnvilState;
 use crate::udev::UdevData;
@@ -123,7 +123,7 @@ impl CastTarget {
 
 bakawm_render_elements! {
     CastRenderElement => {
-        Output = OutputRenderElements<GlesRenderer, WindowRenderElement>,
+        Output = OutputRenderElementsWithBlur<GlesRenderer, WindowRenderElement>,
         Window = WindowRenderElement,
         Pointer = PointerRenderElement<GlesRenderer>,
         RelocatedPointer = RelocateRenderElement<PointerRenderElement<GlesRenderer>>,
@@ -188,19 +188,18 @@ pub fn render_for_screen_cast_inner(
     pointer_element: &PointerElement,
     output: &Output,
     target_presentation_time: Duration,
+    blur_config: crate::config::BlurConfig,
 ) -> Vec<CastSessionId> {
+    if screencasting.casts.is_empty() {
+        return Vec::new();
+    }
+
     let weak = output.downgrade();
     let mode = output.current_mode().unwrap();
     let transform = output.current_transform();
     let size = transform.transform_size(mode.size);
 
     let scale = smithay::utils::Scale::from(output.current_scale().fractional_scale());
-
-    let active_count = screencasting.casts.iter().filter(|c| c.is_active()).count();
-    let total_count = screencasting.casts.len();
-    if total_count > 0 {
-        tracing::info!(%total_count, %active_count, output = %output.name(), ?size, "render_for_screen_cast");
-    }
 
     let mut casts_to_stop = vec![];
 
@@ -220,7 +219,7 @@ pub fn render_for_screen_cast_inner(
                     );
                     continue;
                 }
-                tracing::info!(%name, ?size, "rendering screencast for output");
+                tracing::trace!(%name, ?size, "rendering screencast for output");
             }
             CastTarget::Window { .. } => {}
             CastTarget::Nothing => continue,
@@ -251,6 +250,7 @@ pub fn render_for_screen_cast_inner(
             custom_elements,
             renderer,
             show_window_preview,
+            blur_config,
         );
 
         let mut cast_elements: Vec<CastRenderElement> = vec![];
@@ -288,10 +288,10 @@ pub fn render_for_screen_cast_inner(
         let rendered = cast.dequeue_buffer_and_render(renderer, &cast_elements, &cursor_data, size, scale);
 
         if rendered {
-            tracing::info!("screencast frame rendered successfully");
+            tracing::trace!("screencast frame rendered successfully");
             cast.last_frame_time = get_monotonic_time();
         } else {
-            tracing::info!("screencast frame skipped (no damage or no buffer)");
+            tracing::trace!("screencast frame skipped (no damage or no buffer)");
         }
 
         cast.check_time_and_schedule(output, target_presentation_time);
@@ -311,6 +311,10 @@ pub fn render_windows_for_screen_cast_inner(
     output: &Output,
     target_presentation_time: Duration,
 ) -> Vec<CastSessionId> {
+    if screencasting.casts.is_empty() {
+        return Vec::new();
+    }
+
     let scale = smithay::utils::Scale::from(output.current_scale().fractional_scale());
 
     let mut casts_to_stop = vec![];
@@ -642,6 +646,7 @@ impl AnvilState<UdevData> {
             pointer_element,
             output,
             target_presentation_time,
+            self.config.blur,
         );
         for id in casts_to_stop {
             self.stop_cast(id);

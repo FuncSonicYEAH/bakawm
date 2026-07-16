@@ -4,12 +4,14 @@ use smithay::backend::renderer::gles::{
     UniformValue,
 };
 
+use super::blur::BlurProgram;
 use super::shader_element::ShaderProgram;
 
 pub struct Shaders {
     pub border: Option<ShaderProgram>,
     pub shadow: Option<ShaderProgram>,
     pub clipped_surface: Option<GlesTexProgram>,
+    pub blur: Option<BlurProgram>,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -83,10 +85,17 @@ impl Shaders {
             })
             .ok();
 
+        let blur = BlurProgram::compile(renderer)
+            .map_err(|err| {
+                tracing::warn!("error compiling blur shader: {err:?}");
+            })
+            .ok();
+
         Self {
             border,
             shadow,
             clipped_surface,
+            blur,
         }
     }
 

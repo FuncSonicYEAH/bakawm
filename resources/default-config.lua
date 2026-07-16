@@ -120,6 +120,18 @@ return {
         resize_modifier = "Ctrl",
     },
 
+    -- Blur configuration
+    -- Controls the background blur effect for windows that request it
+    -- (via the ext-background-effect-v1 protocol).
+    blur = {
+        -- Enable or disable blur globally
+        enable = true,
+        -- Number of blur passes (more passes = smoother but slower)
+        passes = 2,
+        -- Blur offset/spread in pixels
+        offset = 1.0,
+    },
+
     -- Initialization function
     -- Called when the compositor starts up.
     -- Use bakawm.spawn() to run programs, bakawm.run_sh() to run shell code.

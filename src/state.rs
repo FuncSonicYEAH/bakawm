@@ -45,6 +45,7 @@ use smithay::{
     },
     utils::{Clock, Logical, Monotonic, Point, Rectangle, Serial, Time},
     wayland::{
+        background_effect::{self, BackgroundEffectState, ExtBackgroundEffectHandler},
         commit_timing::{CommitTimerBarrierStateUserData, CommitTimingManagerState},
         compositor::{CompositorClientState, CompositorHandler, CompositorState, get_parent, with_states},
         dmabuf::DmabufFeedback,
@@ -103,6 +104,7 @@ use crate::cursor::Cursor;
 use crate::{
     dbus::gnome_shell_introspect::{IntrospectToState, StateToIntrospect, WindowProperties},
     focus::{KeyboardFocusTarget, PointerFocusTarget},
+    ipc::{IpcRequest, IpcResponse, OutputInfo, WindowInfo},
     screencopy::{Screencopy, ScreencopyHandler, ScreencopyManagerState},
     shell::WindowElement,
 };
@@ -173,6 +175,7 @@ pub struct AnvilState<BackendData: Backend + 'static> {
     pub output_capture_source_state: OutputCaptureSourceState,
     pub image_copy_capture_state: ImageCopyCaptureState,
     pub screencopy_state: ScreencopyManagerState,
+    pub background_effect_state: BackgroundEffectState,
 
     pub dnd_icon: Option<DndIcon>,
 
@@ -603,6 +606,12 @@ impl<BackendData: Backend> XdgForeignHandler for AnvilState<BackendData> {
     }
 }
 
+impl<BackendData: Backend + 'static> ExtBackgroundEffectHandler for AnvilState<BackendData> {
+    fn capabilities(&self) -> background_effect::Capability {
+        background_effect::Capability::Blur
+    }
+}
+
 impl<BackendData: Backend> ImageCaptureSourceHandler for AnvilState<BackendData> {
     fn source_destroyed(&mut self, _source: ImageCaptureSource) {
         // Anvil doesn't track sources
@@ -764,6 +773,7 @@ impl<BackendData: Backend + 'static> AnvilState<BackendData> {
                 .is_none_or(|client_state| client_state.security_context.is_none())
         });
         FixesState::new::<Self>(&dh);
+        let background_effect_state = BackgroundEffectState::new::<Self>(&dh);
 
         // Image capture protocols (screencopy)
         let image_capture_source_state = ImageCaptureSourceState::new();
@@ -822,6 +832,7 @@ impl<BackendData: Backend + 'static> AnvilState<BackendData> {
             output_capture_source_state,
             image_copy_capture_state,
             screencopy_state,
+            background_effect_state,
             dnd_icon: None,
             pending_screenshot: false,
             suppressed_keys: HashSet::new(),
@@ -1407,6 +1418,30 @@ pub trait Backend {
     fn early_import(&mut self, surface: &WlSurface);
     fn update_led_state(&mut self, led_state: LedState);
     fn reload_cursor(&mut self, theme: Option<&str>, size: Option<u32>);
+
+    /// Capture a screenshot of the given output.  Backends with a renderer
+    /// (udev, winit, x11) override this; the default returns `None`.
+    #[allow(unused_variables)]
+    fn capture_screenshot(
+        &mut self,
+        output: &Output,
+        space: &Space<WindowElement>,
+        pointer_location: Point<f64, Logical>,
+        cursor_status: &CursorImageStatus,
+        show_window_preview: bool,
+        blur: crate::config::BlurConfig,
+        now: Duration,
+    ) -> Option<CapturedFrame> {
+        None
+    }
+}
+
+/// Raw pixel data captured from an output, ready to be encoded as PNG.
+#[derive(Debug, Clone)]
+pub struct CapturedFrame {
+    pub pixels: Vec<u8>,
+    pub width: u32,
+    pub height: u32,
 }
 
 pub fn save_screenshot_to_file(
@@ -1439,4 +1474,270 @@ pub fn get_screenshot_path() -> std::path::PathBuf {
         .unwrap_or_default()
         .as_secs();
     dir.join(format!("screenshot_{}.png", now))
+}
+
+/// Encode raw RGBA pixel data as a PNG byte vector.
+pub fn encode_screenshot_png(
+    pixels: &[u8],
+    width: u32,
+    height: u32,
+) -> Result<Vec<u8>, std::io::Error> {
+    let mut png_bytes = Vec::with_capacity(pixels.len());
+    {
+        let mut encoder = png::Encoder::new(&mut png_bytes, width, height);
+        encoder.set_color(png::ColorType::Rgba);
+        encoder.set_depth(png::BitDepth::Eight);
+        let mut writer = encoder
+            .write_header()
+            .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e.to_string()))?;
+        writer
+            .write_image_data(pixels)
+            .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e.to_string()))?;
+    }
+    Ok(png_bytes)
+}
+
+// ---------------------------------------------------------------------------
+// IPC request handling
+// ---------------------------------------------------------------------------
+
+impl<BackendData: Backend + 'static> AnvilState<BackendData> {
+    /// Dispatch an IPC request coming from `bakawm-ctl`.
+    /// Returns the JSON response plus optional binary payload (PNG bytes).
+    pub fn handle_ipc_request(
+        &mut self,
+        request: IpcRequest,
+    ) -> (IpcResponse, Option<Vec<u8>>) {
+        match request {
+            IpcRequest::ListWindows => {
+                let windows = self.ipc_list_windows();
+                (IpcResponse::Windows { windows }, None)
+            }
+            IpcRequest::FocusWindow { id } => match self.ipc_focus_window(id) {
+                Ok(()) => (IpcResponse::Ok, None),
+                Err(msg) => (IpcResponse::Error { message: msg }, None),
+            },
+            IpcRequest::CloseWindow { id } => match self.ipc_close_window(id) {
+                Ok(()) => (IpcResponse::Ok, None),
+                Err(msg) => (IpcResponse::Error { message: msg }, None),
+            },
+            IpcRequest::MoveWindow { id, x, y } => match self.ipc_move_window(id, x, y) {
+                Ok(()) => (IpcResponse::Ok, None),
+                Err(msg) => (IpcResponse::Error { message: msg }, None),
+            },
+            IpcRequest::ResizeWindow { id, w, h } => match self.ipc_resize_window(id, w, h) {
+                Ok(()) => (IpcResponse::Ok, None),
+                Err(msg) => (IpcResponse::Error { message: msg }, None),
+            },
+            IpcRequest::Screenshot { output } => match self.ipc_capture_screenshot(output) {
+                Ok((png_bytes, width, height)) => (
+                    IpcResponse::Screenshot {
+                        png_length: png_bytes.len() as u64,
+                        width,
+                        height,
+                    },
+                    Some(png_bytes),
+                ),
+                Err(msg) => (IpcResponse::Error { message: msg }, None),
+            },
+            IpcRequest::ListOutputs => {
+                let outputs = self.ipc_list_outputs();
+                (IpcResponse::Outputs { outputs }, None)
+            }
+        }
+    }
+
+    /// Enumerate windows in z-order.  IDs are `(enumerate_index + 1) as u64`,
+    /// matching the introspect D-Bus interface.
+    fn ipc_list_windows(&self) -> Vec<WindowInfo> {
+        use smithay::desktop::WindowSurface;
+        use smithay::wayland::compositor::with_states;
+        use smithay::wayland::shell::xdg::XdgToplevelSurfaceData;
+
+        let mut windows = Vec::new();
+        for (idx, window) in self.space.elements().enumerate() {
+            let id = (idx as u64) + 1;
+            let (title, app_id) = match window.0.underlying_surface() {
+                WindowSurface::Wayland(toplevel) => {
+                    let (title, app_id) = with_states(toplevel.wl_surface(), |states| {
+                        let role = states
+                            .data_map
+                            .get::<XdgToplevelSurfaceData>()
+                            .unwrap()
+                            .lock()
+                            .unwrap();
+                        let title = role.title.clone().unwrap_or_default();
+                        let app_id = role
+                            .app_id
+                            .as_ref()
+                            .map(|id| format!("{id}.desktop"))
+                            .unwrap_or_default();
+                        (title, app_id)
+                    });
+                    (title, app_id)
+                }
+                #[cfg(feature = "xwayland")]
+                WindowSurface::X11(surface) => {
+                    let title = surface.title();
+                    let app_id = "x11".to_owned();
+                    (title, app_id)
+                }
+                #[cfg(not(feature = "xwayland"))]
+                _ => (String::new(), String::new()),
+            };
+
+            let geometry = self
+                .space
+                .element_geometry(window)
+                .map(|g| (g.loc.x, g.loc.y, g.size.w, g.size.h));
+
+            windows.push(WindowInfo {
+                id,
+                title,
+                app_id,
+                geometry,
+            });
+        }
+        windows
+    }
+
+    /// Find a window by its IPC id (1-based enumerate index).
+    fn ipc_find_window(&self, id: u64) -> Option<WindowElement> {
+        if id == 0 {
+            return None;
+        }
+        self.space
+            .elements()
+            .enumerate()
+            .find(|(idx, _)| (*idx as u64) + 1 == id)
+            .map(|(_, w)| w.clone())
+    }
+
+    fn ipc_focus_window(&mut self, id: u64) -> Result<(), String> {
+        use smithay::utils::SERIAL_COUNTER;
+        let window = self
+            .ipc_find_window(id)
+            .ok_or_else(|| format!("window {id} not found"))?;
+        self.space.raise_element(&window, true);
+
+        #[cfg(feature = "xwayland")]
+        if let Some(surface) = window.0.x11_surface() {
+            if let Some(xwm) = self.xwm.as_mut() {
+                let _ = xwm.raise_window(surface);
+            }
+        }
+
+        if let Some(keyboard) = self.seat.get_keyboard() {
+            let serial = SERIAL_COUNTER.next_serial();
+            keyboard.set_focus(self, Some(window.into()), serial);
+        }
+        Ok(())
+    }
+
+    fn ipc_close_window(&mut self, id: u64) -> Result<(), String> {
+        use smithay::desktop::WindowSurface;
+        let window = self
+            .ipc_find_window(id)
+            .ok_or_else(|| format!("window {id} not found"))?;
+        match window.0.underlying_surface() {
+            WindowSurface::Wayland(w) => w.send_close(),
+            #[cfg(feature = "xwayland")]
+            WindowSurface::X11(w) => {
+                let _ = w.close();
+            }
+            #[cfg(not(feature = "xwayland"))]
+            _ => return Err("unsupported window type".to_owned()),
+        }
+        Ok(())
+    }
+
+    fn ipc_move_window(&mut self, id: u64, x: i32, y: i32) -> Result<(), String> {
+        let window = self
+            .ipc_find_window(id)
+            .ok_or_else(|| format!("window {id} not found"))?;
+        self.space.map_element(window, (x, y), false);
+        Ok(())
+    }
+
+    fn ipc_resize_window(&mut self, id: u64, w: i32, h: i32) -> Result<(), String> {
+        let window = self
+            .ipc_find_window(id)
+            .ok_or_else(|| format!("window {id} not found"))?;
+        if let Some(toplevel) = window.0.toplevel() {
+            toplevel.with_pending_state(|state| {
+                state.size = Some((w, h).into());
+            });
+            if toplevel.is_initial_configure_sent() {
+                toplevel.send_pending_configure();
+            }
+            Ok(())
+        } else {
+            #[cfg(feature = "xwayland")]
+            if let Some(surface) = window.0.x11_surface() {
+                let size: Size<i32, Logical> = (w, h).into();
+                let _ = surface.configure(Some(Rectangle::from_size(size)));
+                return Ok(());
+            }
+            Err("window does not support resize".to_owned())
+        }
+    }
+
+    fn ipc_capture_screenshot(
+        &mut self,
+        output_name: Option<String>,
+    ) -> Result<(Vec<u8>, u32, u32), String> {
+        let output = match output_name {
+            Some(name) => self
+                .space
+                .outputs()
+                .find(|o| o.name() == name)
+                .cloned()
+                .ok_or_else(|| format!("output '{name}' not found"))?,
+            None => self
+                .space
+                .outputs()
+                .next()
+                .cloned()
+                .ok_or_else(|| "no output available".to_owned())?,
+        };
+
+        let pointer_location = self.pointer.current_location();
+        let now = self.clock.now();
+        let frame = self.backend_data.capture_screenshot(
+            &output,
+            &self.space,
+            pointer_location,
+            &self.cursor_status,
+            self.show_window_preview,
+            self.config.blur,
+            now.into(),
+        );
+
+        match frame {
+            Some(captured) => {
+                let png = encode_screenshot_png(&captured.pixels, captured.width, captured.height)
+                    .map_err(|e| format!("failed to encode PNG: {e}"))?;
+                Ok((png, captured.width, captured.height))
+            }
+            None => Err("backend does not support screenshots".to_owned()),
+        }
+    }
+
+    fn ipc_list_outputs(&self) -> Vec<OutputInfo> {
+        let mut outputs = Vec::new();
+        for output in self.space.outputs() {
+            let (width, height) = output
+                .current_mode()
+                .map(|m| (m.size.w as u32, m.size.h as u32))
+                .unwrap_or((0, 0));
+            let scale = output.current_scale().fractional_scale();
+            outputs.push(OutputInfo {
+                name: output.name(),
+                width,
+                height,
+                scale,
+            });
+        }
+        outputs
+    }
 }

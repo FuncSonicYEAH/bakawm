@@ -1,34 +1,45 @@
 use smithay::{
     backend::renderer::{
-        Color32F, ImportAll, ImportMem, Renderer, Texture,
+        Color32F, ImportAll, ImportMem, Renderer, RendererSuper, Texture,
         damage::{Error as OutputDamageTrackerError, OutputDamageTracker, RenderOutputResult},
         element::{
-            AsRenderElements, RenderElement, Wrap,
+            AsRenderElements, Element, Id, Kind, RenderElement, UnderlyingStorage, Wrap,
             surface::WaylandSurfaceRenderElement,
             utils::{
                 ConstrainAlign, ConstrainScaleBehavior, CropRenderElement, RelocateRenderElement,
                 RescaleRenderElement,
             },
         },
+        gles::{GlesError, GlesFrame, GlesRenderer},
+        utils::{CommitCounter, DamageSet, OpaqueRegions},
     },
     desktop::{
         layer_map_for_output,
         space::{
-            ConstrainBehavior, ConstrainReference, Space, SpaceRenderElements,
+            ConstrainBehavior, ConstrainReference, Space, SpaceElement, SpaceRenderElements,
             constrain_space_element,
         },
     },
     output::Output,
-    utils::{Point, Rectangle, Scale, Size},
-    wayland::shell::wlr_layer::Layer as WlrLayer,
+    utils::{Buffer, Point, Rectangle, Scale, Size, Transform},
+    wayland::{
+        background_effect::BackgroundEffectSurfaceCachedState,
+        compositor::with_states,
+        shell::wlr_layer::Layer as WlrLayer,
+    },
 };
 
 #[cfg(feature = "debug")]
 use crate::drawing::FpsElement;
 use crate::{
+    config::BlurConfig,
     drawing::{CLEAR_COLOR, CLEAR_COLOR_FULLSCREEN, PointerRenderElement},
+    render_helpers::{blur::BlurOptions, framebuffer_effect::FramebufferEffectElement},
     shell::{FullscreenSurface, WindowElement, WindowRenderElement},
 };
+
+#[cfg(feature = "udev")]
+use crate::shell::UdevMultiRenderer;
 
 smithay::backend::renderer::element::render_elements! {
     pub CustomRenderElements<R> where
@@ -73,6 +84,231 @@ impl<R: Renderer + ImportAll + ImportMem, E: RenderElement<R> + std::fmt::Debug>
             Self::Custom(arg0) => f.debug_tuple("Custom").field(arg0).finish(),
             Self::Preview(arg0) => f.debug_tuple("Preview").field(arg0).finish(),
             Self::_GenericCatcher(arg0) => f.debug_tuple("_GenericCatcher").field(arg0).finish(),
+        }
+    }
+}
+
+/// Wrapper around [`OutputRenderElements`] that can also hold a [`FramebufferEffectElement`]
+/// for background blur effects.
+///
+/// `FramebufferEffectElement` only implements `RenderElement<GlesRenderer>`, so we can't put it
+/// directly into the generic `OutputRenderElements<R, E>`. This wrapper manually implements
+/// `RenderElement<GlesRenderer>` and `RenderElement<UdevMultiRenderer>` (udev feature),
+/// delegating the Blur variant to `RenderElement<GlesRenderer>` via `frame.as_mut()`.
+pub enum OutputRenderElementsWithBlur<R, E>
+where
+    R: Renderer + ImportAll + ImportMem,
+    R::TextureId: Clone + Texture + 'static,
+    E: RenderElement<R>,
+{
+    Output(OutputRenderElements<R, E>),
+    Blur(FramebufferEffectElement),
+}
+
+impl<R, E> std::fmt::Debug for OutputRenderElementsWithBlur<R, E>
+where
+    R: Renderer + ImportAll + ImportMem,
+    R::TextureId: Clone + Texture + 'static,
+    E: RenderElement<R> + std::fmt::Debug,
+{
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Output(e) => f.debug_tuple("Output").field(e).finish(),
+            Self::Blur(e) => f.debug_tuple("Blur").field(e).finish(),
+        }
+    }
+}
+
+impl<R, E> From<OutputRenderElements<R, E>> for OutputRenderElementsWithBlur<R, E>
+where
+    R: Renderer + ImportAll + ImportMem,
+    R::TextureId: Clone + Texture + 'static,
+    E: RenderElement<R>,
+{
+    fn from(e: OutputRenderElements<R, E>) -> Self {
+        Self::Output(e)
+    }
+}
+
+impl<R, E> Element for OutputRenderElementsWithBlur<R, E>
+where
+    R: Renderer + ImportAll + ImportMem,
+    R::TextureId: Clone + Texture + 'static,
+    E: RenderElement<R>,
+{
+    fn id(&self) -> &Id {
+        match self {
+            Self::Output(e) => e.id(),
+            Self::Blur(e) => e.id(),
+        }
+    }
+
+    fn current_commit(&self) -> CommitCounter {
+        match self {
+            Self::Output(e) => e.current_commit(),
+            Self::Blur(e) => e.current_commit(),
+        }
+    }
+
+    fn geometry(&self, scale: Scale<f64>) -> Rectangle<i32, smithay::utils::Physical> {
+        match self {
+            Self::Output(e) => e.geometry(scale),
+            Self::Blur(e) => e.geometry(scale),
+        }
+    }
+
+    fn transform(&self) -> Transform {
+        match self {
+            Self::Output(e) => e.transform(),
+            Self::Blur(e) => e.transform(),
+        }
+    }
+
+    fn src(&self) -> Rectangle<f64, Buffer> {
+        match self {
+            Self::Output(e) => e.src(),
+            Self::Blur(e) => e.src(),
+        }
+    }
+
+    fn damage_since(
+        &self,
+        scale: Scale<f64>,
+        commit: Option<CommitCounter>,
+    ) -> DamageSet<i32, smithay::utils::Physical> {
+        match self {
+            Self::Output(e) => e.damage_since(scale, commit),
+            Self::Blur(e) => e.damage_since(scale, commit),
+        }
+    }
+
+    fn opaque_regions(&self, scale: Scale<f64>) -> OpaqueRegions<i32, smithay::utils::Physical> {
+        match self {
+            Self::Output(e) => e.opaque_regions(scale),
+            Self::Blur(e) => e.opaque_regions(scale),
+        }
+    }
+
+    fn alpha(&self) -> f32 {
+        match self {
+            Self::Output(e) => e.alpha(),
+            Self::Blur(e) => e.alpha(),
+        }
+    }
+
+    fn kind(&self) -> Kind {
+        match self {
+            Self::Output(e) => e.kind(),
+            Self::Blur(e) => e.kind(),
+        }
+    }
+
+    fn is_framebuffer_effect(&self) -> bool {
+        match self {
+            Self::Output(e) => e.is_framebuffer_effect(),
+            Self::Blur(e) => e.is_framebuffer_effect(),
+        }
+    }
+}
+
+impl<E> RenderElement<GlesRenderer> for OutputRenderElementsWithBlur<GlesRenderer, E>
+where
+    E: RenderElement<GlesRenderer>,
+    OutputRenderElements<GlesRenderer, E>: RenderElement<GlesRenderer>,
+{
+    fn draw(
+        &self,
+        frame: &mut GlesFrame<'_, '_>,
+        src: Rectangle<f64, Buffer>,
+        dst: Rectangle<i32, smithay::utils::Physical>,
+        damage: &[Rectangle<i32, smithay::utils::Physical>],
+        opaque_regions: &[Rectangle<i32, smithay::utils::Physical>],
+        cache: Option<&smithay::utils::user_data::UserDataMap>,
+    ) -> Result<(), GlesError> {
+        match self {
+            Self::Output(e) => e.draw(frame, src, dst, damage, opaque_regions, cache),
+            Self::Blur(e) => e.draw(frame, src, dst, damage, opaque_regions, cache),
+        }
+    }
+
+    fn underlying_storage(
+        &self,
+        renderer: &mut GlesRenderer,
+    ) -> Option<UnderlyingStorage<'_>> {
+        match self {
+            Self::Output(e) => e.underlying_storage(renderer),
+            Self::Blur(e) => e.underlying_storage(renderer),
+        }
+    }
+
+    fn capture_framebuffer(
+        &self,
+        frame: &mut GlesFrame<'_, '_>,
+        src: Rectangle<f64, Buffer>,
+        dst: Rectangle<i32, smithay::utils::Physical>,
+        cache: &smithay::utils::user_data::UserDataMap,
+    ) -> Result<(), GlesError> {
+        match self {
+            Self::Output(e) => e.capture_framebuffer(frame, src, dst, cache),
+            Self::Blur(e) => e.capture_framebuffer(frame, src, dst, cache),
+        }
+    }
+}
+
+#[cfg(feature = "udev")]
+impl<'a, 'b, E> RenderElement<UdevMultiRenderer<'a, 'b>>
+    for OutputRenderElementsWithBlur<UdevMultiRenderer<'a, 'b>, E>
+where
+    E: RenderElement<UdevMultiRenderer<'a, 'b>>,
+    OutputRenderElements<UdevMultiRenderer<'a, 'b>, E>:
+        RenderElement<UdevMultiRenderer<'a, 'b>>,
+{
+    fn draw(
+        &self,
+        frame: &mut <UdevMultiRenderer<'a, 'b> as RendererSuper>::Frame<'_, '_>,
+        src: Rectangle<f64, Buffer>,
+        dst: Rectangle<i32, smithay::utils::Physical>,
+        damage: &[Rectangle<i32, smithay::utils::Physical>],
+        opaque_regions: &[Rectangle<i32, smithay::utils::Physical>],
+        cache: Option<&smithay::utils::user_data::UserDataMap>,
+    ) -> Result<(), <UdevMultiRenderer<'a, 'b> as RendererSuper>::Error> {
+        match self {
+            Self::Output(e) => {
+                e.draw(frame, src, dst, damage, opaque_regions, cache)
+            }
+            Self::Blur(e) => {
+                RenderElement::<GlesRenderer>::draw(
+                    e, frame.as_mut(), src, dst, damage, opaque_regions, cache,
+                )
+                .map_err(Into::into)
+            }
+        }
+    }
+
+    fn underlying_storage(
+        &self,
+        renderer: &mut UdevMultiRenderer<'a, 'b>,
+    ) -> Option<UnderlyingStorage<'_>> {
+        let gles = renderer.as_mut();
+        match self {
+            Self::Output(e) => e.underlying_storage(renderer),
+            Self::Blur(e) => e.underlying_storage(gles),
+        }
+    }
+
+    fn capture_framebuffer(
+        &self,
+        frame: &mut <UdevMultiRenderer<'a, 'b> as RendererSuper>::Frame<'_, '_>,
+        src: Rectangle<f64, Buffer>,
+        dst: Rectangle<i32, smithay::utils::Physical>,
+        cache: &smithay::utils::user_data::UserDataMap,
+    ) -> Result<(), <UdevMultiRenderer<'a, 'b> as RendererSuper>::Error> {
+        match self {
+            Self::Output(e) => e.capture_framebuffer(frame, src, dst, cache),
+            Self::Blur(e) => {
+                RenderElement::<GlesRenderer>::capture_framebuffer(e, frame.as_mut(), src, dst, cache)
+                    .map_err(Into::into)
+            }
         }
     }
 }
@@ -148,7 +384,11 @@ pub fn output_elements<R>(
     custom_elements: impl IntoIterator<Item = CustomRenderElements<R>>,
     renderer: &mut R,
     show_window_preview: bool,
-) -> (Vec<OutputRenderElements<R, WindowRenderElement>>, Color32F)
+    blur_config: BlurConfig,
+) -> (
+    Vec<OutputRenderElementsWithBlur<R, WindowRenderElement>>,
+    Color32F,
+)
 where
     R: Renderer + ImportAll + ImportMem,
     R::TextureId: Clone + Texture + 'static,
@@ -167,22 +407,30 @@ where
 
         let elements = custom_elements
             .into_iter()
-            .map(OutputRenderElements::from)
+            .map(|e| OutputRenderElementsWithBlur::from(OutputRenderElements::from(e)))
             .chain(
-                window_render_elements
-                    .into_iter()
-                    .map(|e| OutputRenderElements::Window(Wrap::from(e))),
+                window_render_elements.into_iter().map(|e| {
+                    OutputRenderElementsWithBlur::from(OutputRenderElements::Window(Wrap::from(e)))
+                }),
             )
             .collect::<Vec<_>>();
         (elements, CLEAR_COLOR_FULLSCREEN)
     } else {
-        let mut output_render_elements = custom_elements
-            .into_iter()
-            .map(OutputRenderElements::from)
-            .collect::<Vec<_>>();
+        let mut output_render_elements: Vec<OutputRenderElementsWithBlur<R, WindowRenderElement>> =
+            custom_elements
+                .into_iter()
+                .map(|e| OutputRenderElementsWithBlur::from(OutputRenderElements::from(e)))
+                .collect::<Vec<_>>();
 
         if show_window_preview && space.elements_for_output(output).next().is_some() {
-            output_render_elements.extend(space_preview_elements(renderer, space, output));
+            output_render_elements.extend(
+                space_preview_elements::<R, OutputRenderElements<R, WindowRenderElement>>(
+                    renderer,
+                    space,
+                    output,
+                )
+                .map(OutputRenderElementsWithBlur::from),
+            );
         }
 
         let output_scale = output.current_scale().fractional_scale();
@@ -198,10 +446,10 @@ where
         // `render_output_internal` draws elements via `iter().rev()`, so elements at the end
         // of the vec are drawn first (bottom) and elements at the start are drawn last (top).
         // Final vec order (top -> bottom):
-        //   [custom, overlay, top, window, bottom, background]
+        //   [custom, overlay, top, window, blur, bottom, background]
         let render_layer = |renderer: &mut R,
                             layer: WlrLayer,
-                            elements: &mut Vec<OutputRenderElements<R, WindowRenderElement>>| {
+                            elements: &mut Vec<OutputRenderElementsWithBlur<R, WindowRenderElement>>| {
             let surfaces: Vec<_> = layer_map.layers_on(layer).collect();
             for surface in surfaces {
                 if let Some(geo) = layer_map.layer_geometry(surface) {
@@ -213,11 +461,11 @@ where
                             Scale::from(output_scale),
                             1.0,
                         );
-                    elements.extend(
-                        rendered
-                            .into_iter()
-                            .map(|e| OutputRenderElements::Space(SpaceRenderElements::Surface(e))),
-                    );
+                    elements.extend(rendered.into_iter().map(|e| {
+                        OutputRenderElementsWithBlur::from(OutputRenderElements::Space(
+                            SpaceRenderElements::Surface(e),
+                        ))
+                    }));
                 }
             }
         };
@@ -233,9 +481,54 @@ where
                     .render_elements_for_region(renderer, &output_geo, output_scale, 1.0)
                     .into_iter()
                     .map(|e| {
-                        OutputRenderElements::Space(SpaceRenderElements::Element(Wrap::from(e)))
+                        OutputRenderElementsWithBlur::from(OutputRenderElements::Space(
+                            SpaceRenderElements::Element(Wrap::from(e)),
+                        ))
                     }),
             );
+
+            // Blur elements for windows with blur regions.
+            //
+            // These are inserted after windows but before bottom/background in the vec
+            // (top -> bottom), so they are drawn after background+bottom but before windows
+            // in the reversed draw order. The blur element captures the framebuffer content
+            // (background + bottom layers) and applies a blur, then the window is drawn on top.
+            for window in space.elements_for_output(output) {
+                if let Some(wl_surface) = window.wl_surface() {
+                    let has_blur = with_states(&wl_surface, |states| {
+                        states
+                            .cached_state
+                            .get::<BackgroundEffectSurfaceCachedState>()
+                            .current()
+                            .blur_region
+                            .is_some()
+                    });
+                    if has_blur && blur_config.enable {
+                        // Use `space.element_bbox` to get the window bbox in space-global
+                        // coordinates. `SpaceElement::bbox(&window)` returns the window's
+                        // own bbox (loc relative to the window, usually (0,0)), not its
+                        // position in the space.
+                        let bbox = space.element_bbox(&window).unwrap_or_else(|| {
+                            SpaceElement::bbox(&window)
+                        });
+                        let geometry = Rectangle::new(
+                            bbox.loc - output_geo.loc,
+                            bbox.size,
+                        )
+                        .to_f64();
+                        let blur_elem = FramebufferEffectElement::new(
+                            geometry,
+                            output_scale,
+                            Some(BlurOptions {
+                                passes: blur_config.passes,
+                                offset: blur_config.offset,
+                            }),
+                        );
+                        output_render_elements
+                            .push(OutputRenderElementsWithBlur::Blur(blur_elem));
+                    }
+                }
+            }
         }
 
         // Lower layers (rendered below windows). Background is the bottom-most layer, so it
@@ -257,6 +550,7 @@ pub fn render_output<'a, 'd, R>(
     damage_tracker: &'d mut OutputDamageTracker,
     age: usize,
     show_window_preview: bool,
+    blur_config: BlurConfig,
 ) -> Result<RenderOutputResult<'d>, OutputDamageTrackerError<R::Error>>
 where
     R: Renderer + ImportAll + ImportMem,
@@ -265,8 +559,9 @@ where
     WindowRenderElement: RenderElement<R>,
     CustomRenderElements<R>: RenderElement<R>,
     OutputRenderElements<R, WindowRenderElement>: RenderElement<R>,
+    OutputRenderElementsWithBlur<R, WindowRenderElement>: RenderElement<R>,
 {
     let (elements, clear_color) =
-        output_elements(output, space, custom_elements, renderer, show_window_preview);
+        output_elements(output, space, custom_elements, renderer, show_window_preview, blur_config);
     damage_tracker.render_output(renderer, framebuffer, age, &elements, clear_color)
 }

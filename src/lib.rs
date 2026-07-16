@@ -8,6 +8,7 @@
 )]
 
 pub mod config;
+pub mod ipc;
 #[cfg(any(feature = "udev", feature = "xwayland"))]
 pub mod cursor;
 pub mod drawing;

@@ -19,6 +19,7 @@ pub struct Config {
     pub env: HashMap<String, String>,
     pub cursor: CursorConfig,
     pub window: WindowConfig,
+    pub blur: BlurConfig,
     pub init_commands: Vec<String>,
     pub init_shell_commands: Vec<String>,
 }
@@ -180,6 +181,13 @@ pub struct ShadowConfig {
     pub color: [f32; 4],
 }
 
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct BlurConfig {
+    pub enable: bool,
+    pub passes: u8,
+    pub offset: f64,
+}
+
 impl Default for BorderConfig {
     fn default() -> Self {
         BorderConfig {
@@ -199,6 +207,16 @@ impl Default for ShadowConfig {
             softness: 30.0,
             spread: 5.0,
             color: [0.0, 0.0, 0.0, 0.47],
+        }
+    }
+}
+
+impl Default for BlurConfig {
+    fn default() -> Self {
+        BlurConfig {
+            enable: true,
+            passes: 2,
+            offset: 1.0,
         }
     }
 }
@@ -301,6 +319,7 @@ impl Default for Config {
                 size: None,
             },
             window: WindowConfig::default(),
+            blur: BlurConfig::default(),
             init_commands: Vec::new(),
             init_shell_commands: Vec::new(),
         }
@@ -489,6 +508,10 @@ fn parse_lua_config(path: &PathBuf) -> LuaResult<Config> {
 
     if let Value::Table(window) = result.get::<Value>("window")? {
         config.window = parse_window(&window)?;
+    }
+
+    if let Value::Table(blur) = result.get::<Value>("blur")? {
+        config.blur = parse_blur(&blur)?;
     }
 
     if let Value::Function(init_fn) = result.get::<Value>("init")? {
@@ -702,6 +725,20 @@ fn parse_window(table: &Table) -> LuaResult<WindowConfig> {
     }
 
     Ok(window)
+}
+
+fn parse_blur(table: &Table) -> LuaResult<BlurConfig> {
+    let mut blur = BlurConfig::default();
+    if let Ok(enable) = table.get::<bool>("enable") {
+        blur.enable = enable;
+    }
+    if let Ok(passes) = table.get::<u8>("passes") {
+        blur.passes = passes;
+    }
+    if let Ok(offset) = table.get::<f64>("offset") {
+        blur.offset = offset;
+    }
+    Ok(blur)
 }
 
 #[cfg(test)]

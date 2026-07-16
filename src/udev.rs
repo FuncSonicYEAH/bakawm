@@ -219,6 +219,178 @@ impl Backend for UdevData {
         self.pointer_image = crate::cursor::Cursor::load_with_config(theme, size);
         self.pointer_images.clear();
     }
+
+    fn capture_screenshot(
+        &mut self,
+        output: &Output,
+        space: &Space<WindowElement>,
+        pointer_location: Point<f64, Logical>,
+        cursor_status: &CursorImageStatus,
+        show_window_preview: bool,
+        blur: crate::config::BlurConfig,
+        now: Duration,
+    ) -> Option<crate::state::CapturedFrame> {
+        use smithay::backend::allocator::Fourcc;
+        use smithay::backend::renderer::element::{AsRenderElements, Element, RenderElement};
+        use smithay::backend::renderer::gles::GlesTexture;
+        use smithay::backend::renderer::{
+            Bind, Color32F, ExportMem, Frame, Offscreen, Renderer, Texture,
+        };
+        use smithay::utils::Rectangle;
+        use crate::render::output_elements;
+        use crate::state::CapturedFrame;
+
+        // Resolve the (node, crtc) for this output.
+        let id = output.user_data().get::<UdevOutputId>()?;
+        let scale = Scale::from(output.current_scale().fractional_scale());
+        let output_transform = output.current_transform();
+        let mode = output.current_mode()?;
+        let size = mode.size;
+
+        let device = self.backends.get_mut(&id.device_id)?;
+        let surface = device.surfaces.get_mut(&id.crtc)?;
+
+        let primary_gpu = self.primary_gpu;
+        let render_node = surface.render_node.unwrap_or(primary_gpu);
+        let mut renderer = if primary_gpu == render_node {
+            self.gpus.single_renderer(&render_node)
+        } else {
+            let format = surface.drm_output.format();
+            self.gpus.renderer(&primary_gpu, &render_node, format)
+        }
+        .ok()?;
+
+        let output_geometry = space.output_geometry(output)?;
+
+        // Build cursor elements if the pointer is on this output.
+        let frame = self.pointer_image.get_image(1, now);
+        let pointer_image = self
+            .pointer_images
+            .iter()
+            .find_map(|(image, texture)| {
+                if image == &frame {
+                    Some(texture.clone())
+                } else {
+                    None
+                }
+            })
+            .unwrap_or_else(|| {
+                let buffer = MemoryRenderBuffer::from_slice(
+                    &frame.pixels_rgba,
+                    Fourcc::Argb8888,
+                    (frame.width as i32, frame.height as i32),
+                    1,
+                    Transform::Normal,
+                    None,
+                );
+                if self.pointer_images.len() > 64 {
+                    let start = self.pointer_images.len() - 32;
+                    self.pointer_images.drain(0..start);
+                }
+                self.pointer_images.push((frame, buffer.clone()));
+                buffer
+            });
+
+        let mut custom_elements: Vec<CustomRenderElements<_>> = Vec::new();
+        if output_geometry.to_f64().contains(pointer_location) {
+            let cursor_hotspot = if let CursorImageStatus::Surface(surface) = cursor_status {
+                compositor::with_states(surface, |states| {
+                    states
+                        .data_map
+                        .get::<Mutex<CursorImageAttributes>>()
+                        .unwrap()
+                        .lock()
+                        .unwrap()
+                        .hotspot
+                })
+            } else {
+                (0, 0).into()
+            };
+            let cursor_pos = pointer_location - output_geometry.loc.to_f64();
+            self.pointer_element.set_buffer(pointer_image);
+            self.pointer_element.set_status(cursor_status.clone());
+            custom_elements.extend(self.pointer_element.render_elements(
+                &mut renderer,
+                (cursor_pos - cursor_hotspot.to_f64())
+                    .to_physical(scale)
+                    .to_i32_round(),
+                scale,
+                1.0,
+            ));
+        }
+
+        let (elements, _clear_color) =
+            output_elements(output, space, custom_elements, &mut renderer, show_window_preview, blur);
+
+        let fourcc = Fourcc::Abgr8888;
+        let buffer_size = size.to_logical(1).to_buffer(1, Transform::Normal);
+
+        let Ok(mut texture): Result<GlesTexture, _> = renderer.create_buffer(fourcc, buffer_size)
+        else {
+            warn!("Failed to create offscreen texture for screenshot");
+            return None;
+        };
+
+        let Ok(mut target) = renderer.bind(&mut texture) else {
+            warn!("Failed to bind offscreen texture for screenshot");
+            return None;
+        };
+
+        let transform_inv = output_transform.invert();
+        let output_rect = Rectangle::from_size(transform_inv.transform_size(size));
+
+        let Ok(mut frame) = renderer.render(&mut target, size, transform_inv) else {
+            warn!("Failed to start rendering for screenshot");
+            return None;
+        };
+
+        if frame.clear(Color32F::TRANSPARENT, &[output_rect]).is_err() {
+            warn!("Failed to clear for screenshot");
+            return None;
+        }
+
+        for element in elements.iter().rev() {
+            let src = element.src();
+            let dst = element.geometry(scale);
+            if let Some(mut damage) = output_rect.intersection(dst) {
+                damage.loc -= dst.loc;
+                let blur_cache = if element.is_framebuffer_effect() {
+                    Some(smithay::utils::user_data::UserDataMap::new())
+                } else {
+                    None
+                };
+                if let Some(ref cache) = blur_cache {
+                    let _ = element.capture_framebuffer(&mut frame, src, dst, cache);
+                }
+                let _ = element.draw(&mut frame, src, dst, &[damage], &[], blur_cache.as_ref());
+            }
+        }
+
+        if frame.finish().is_err() {
+            warn!("Failed to finish rendering for screenshot");
+            return None;
+        }
+
+        let Ok(mapping) = renderer.copy_framebuffer(
+            &target,
+            Rectangle::from_size(target.size()),
+            fourcc,
+        ) else {
+            warn!("Failed to copy framebuffer for screenshot");
+            return None;
+        };
+
+        let Ok(bytes) = renderer.map_texture(&mapping) else {
+            warn!("Failed to map texture for screenshot");
+            return None;
+        };
+
+        Some(CapturedFrame {
+            pixels: bytes.to_vec(),
+            width: size.w as u32,
+            height: size.h as u32,
+        })
+    }
 }
 
 impl UdevData {
@@ -598,6 +770,12 @@ pub fn run_udev() {
     state.start_xwayland();
 
     state.run_init_commands();
+
+    // Start the bakawm-ctl IPC server.
+    match crate::ipc::start_ipc_server(&mut state) {
+        Ok(path) => info!("IPC socket listening at {}", path.display()),
+        Err(err) => warn!("Failed to start IPC server: {}", err),
+    }
 
     if let Some(watcher) = crate::config::spawn_config_watcher(&event_loop.handle()) {
         state.config_watcher = Some(crate::state::ConfigWatcher(watcher));
@@ -1165,7 +1343,7 @@ impl AnvilState<UdevData> {
             let drm_output = match device
                 .drm_output_manager
                 .lock()
-                .initialize_output::<_, OutputRenderElements<UdevRenderer<'_>, WindowRenderElement>>(
+                .initialize_output::<_, OutputRenderElementsWithBlur<UdevRenderer<'_>, WindowRenderElement>>(
                     crtc,
                     drm_mode,
                     &[connector.handle()],
@@ -1260,7 +1438,7 @@ impl AnvilState<UdevData> {
 
         let render_node = device.render_node.unwrap_or(self.backend_data.primary_gpu);
         let mut renderer = self.backend_data.gpus.single_renderer(&render_node).unwrap();
-        let _ = device.drm_output_manager.lock().try_to_restore_modifiers::<_, OutputRenderElements<
+        let _ = device.drm_output_manager.lock().try_to_restore_modifiers::<_, OutputRenderElementsWithBlur<
             UdevRenderer<'_>,
             WindowRenderElement,
         >>(
@@ -1658,6 +1836,7 @@ impl AnvilState<UdevData> {
                 &self.dnd_icon,
                 &mut self.cursor_status,
                 self.show_window_preview,
+                self.config.blur,
             )
         };
 
@@ -1674,6 +1853,7 @@ impl AnvilState<UdevData> {
                 &self.backend_data.pointer_element,
                 &output,
                 target_presentation_time,
+                self.config.blur,
             ));
             casts_to_stop.extend(crate::screencasting::render_windows_for_screen_cast_inner(
                 &mut self.screencasting,
@@ -1764,13 +1944,7 @@ impl AnvilState<UdevData> {
         node: &DrmNode,
         crtc: &crtc::Handle,
     ) {
-        use smithay::backend::allocator::Fourcc;
-        use smithay::backend::renderer::element::{AsRenderElements, Element, RenderElement};
-        use smithay::backend::renderer::gles::GlesTexture;
-        use smithay::backend::renderer::{Bind, Color32F, ExportMem, Frame, Offscreen, Renderer, Texture};
-        use smithay::utils::Rectangle;
         use crate::state::{save_screenshot_to_file, get_screenshot_path};
-        use crate::render::output_elements;
 
         let output = match self.space.outputs().find(|o| {
             o.user_data().get::<UdevOutputId>()
@@ -1783,155 +1957,24 @@ impl AnvilState<UdevData> {
             None => return,
         };
 
-        let scale = Scale::from(output.current_scale().fractional_scale());
-        let output_transform = output.current_transform();
-        let mode = match output.current_mode() {
-            Some(mode) => mode,
-            None => return,
-        };
-        let size = mode.size;
-
-        let device = match self.backend_data.backends.get_mut(node) {
-            Some(d) => d,
-            None => return,
-        };
-
-        let surface = match device.surfaces.get_mut(crtc) {
-            Some(s) => s,
-            None => return,
-        };
-
-        let primary_gpu = self.backend_data.primary_gpu;
-        let render_node = surface.render_node.unwrap_or(primary_gpu);
-        let mut renderer = if primary_gpu == render_node {
-            self.backend_data.gpus.single_renderer(&render_node)
-        } else {
-            let format = surface.drm_output.format();
-            self.backend_data
-                .gpus
-                .renderer(&primary_gpu, &render_node, format)
-        }
-        .unwrap();
-
         let pointer_location = self.pointer.current_location();
-        let output_geometry = self.space.output_geometry(&output).unwrap();
-        let pointer_images = &mut self.backend_data.pointer_images;
-        let frame = self.backend_data.pointer_image.get_image(1, self.clock.now().into());
-        let pointer_image = pointer_images
-            .iter()
-            .find_map(|(image, texture)| {
-                if image == &frame {
-                    Some(texture.clone())
-                } else {
-                    None
-                }
-            })
-            .unwrap_or_else(|| {
-                let buffer = MemoryRenderBuffer::from_slice(
-                    &frame.pixels_rgba,
-                    Fourcc::Argb8888,
-                    (frame.width as i32, frame.height as i32),
-                    1,
-                    Transform::Normal,
-                    None,
-                );
-                if pointer_images.len() > 64 {
-                    pointer_images.drain(0..pointer_images.len() - 32);
-                }
-                pointer_images.push((frame, buffer.clone()));
-                buffer
-            });
+        let now = self.clock.now();
 
-        let mut custom_elements: Vec<CustomRenderElements<_>> = Vec::new();
-        if output_geometry.to_f64().contains(pointer_location) {
-            let cursor_hotspot = if let CursorImageStatus::Surface(surface) = &self.cursor_status {
-                compositor::with_states(surface, |states| {
-                    states
-                        .data_map
-                        .get::<Mutex<CursorImageAttributes>>()
-                        .unwrap()
-                        .lock()
-                        .unwrap()
-                        .hotspot
-                })
-            } else {
-                (0, 0).into()
-            };
-            let cursor_pos = pointer_location - output_geometry.loc.to_f64();
-            self.backend_data.pointer_element.set_buffer(pointer_image);
-            self.backend_data.pointer_element.set_status(self.cursor_status.clone());
-            custom_elements.extend(
-                self.backend_data.pointer_element.render_elements(
-                    &mut renderer,
-                    (cursor_pos - cursor_hotspot.to_f64())
-                        .to_physical(scale)
-                        .to_i32_round(),
-                    scale,
-                    1.0,
-                ),
-            );
-        }
-
-        let (elements, _clear_color) =
-            output_elements(&output, &self.space, custom_elements, &mut renderer, self.show_window_preview);
-
-        let fourcc = Fourcc::Abgr8888;
-        let buffer_size = size.to_logical(1).to_buffer(1, Transform::Normal);
-
-        let Ok(mut texture): Result<GlesTexture, _> = renderer.create_buffer(fourcc, buffer_size) else {
-            warn!("Failed to create offscreen texture for screenshot");
-            return;
-        };
-
-        let Ok(mut target) = renderer.bind(&mut texture) else {
-            warn!("Failed to bind offscreen texture for screenshot");
-            return;
-        };
-
-        let transform_inv = output_transform.invert();
-        let output_rect = Rectangle::from_size(transform_inv.transform_size(size));
-
-        let Ok(mut frame) = renderer.render(&mut target, size, transform_inv) else {
-            warn!("Failed to start rendering for screenshot");
-            return;
-        };
-
-        if frame.clear(Color32F::TRANSPARENT, &[output_rect]).is_err() {
-            warn!("Failed to clear for screenshot");
-            return;
-        }
-
-        for element in elements.iter().rev() {
-            let src = element.src();
-            let dst = element.geometry(scale);
-            if let Some(mut damage) = output_rect.intersection(dst) {
-                damage.loc -= dst.loc;
-                let _ = element.draw(&mut frame, src, dst, &[damage], &[], None);
-            }
-        }
-
-        if frame.finish().is_err() {
-            warn!("Failed to finish rendering for screenshot");
-            return;
-        }
-
-        let Ok(mapping) = renderer.copy_framebuffer(
-            &target,
-            Rectangle::from_size(target.size()),
-            fourcc,
+        let Some(captured) = self.backend_data.capture_screenshot(
+            &output,
+            &self.space,
+            pointer_location,
+            &self.cursor_status,
+            self.show_window_preview,
+            self.config.blur,
+            now.into(),
         ) else {
-            warn!("Failed to copy framebuffer for screenshot");
+            warn!("Failed to capture screenshot");
             return;
         };
 
-        let Ok(bytes) = renderer.map_texture(&mapping) else {
-            warn!("Failed to map texture for screenshot");
-            return;
-        };
-
-        let pixels = bytes.to_vec();
         let path = get_screenshot_path();
-        match save_screenshot_to_file(&pixels, size.w as u32, size.h as u32, &path) {
+        match save_screenshot_to_file(&captured.pixels, captured.width, captured.height, &path) {
             Ok(()) => {
                 info!("Screenshot saved to {:?}", path);
             }
@@ -1955,6 +1998,7 @@ fn render_surface(
     dnd_icon: &Option<DndIcon>,
     cursor_status: &mut CursorImageStatus,
     show_window_preview: bool,
+    blur_config: crate::config::BlurConfig,
 ) -> Result<(bool, RenderElementStates), SwapBuffersError> {
     let output_geometry = space.output_geometry(output).unwrap();
     let scale = Scale::from(output.current_scale().fractional_scale());
@@ -2032,7 +2076,7 @@ fn render_surface(
     }
 
     let (elements, clear_color) =
-        output_elements(output, space, custom_elements, renderer, show_window_preview);
+        output_elements(output, space, custom_elements, renderer, show_window_preview, blur_config);
 
     let frame_mode = if surface.disable_direct_scanout {
         FrameFlags::empty()

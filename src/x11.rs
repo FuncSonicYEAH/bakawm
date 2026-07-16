@@ -6,6 +6,7 @@ use std::{
 use crate::{
     drawing::*,
     render::*,
+    shell::WindowElement,
     state::{AnvilState, Backend, take_presentation_feedback, update_primary_scanout_output},
 };
 #[cfg(feature = "egl")]
@@ -28,6 +29,7 @@ use smithay::{
         vulkan::{Instance, PhysicalDevice, version::Version},
         x11::{WindowBuilder, X11Backend, X11Event, X11Surface},
     },
+    desktop::Space,
     input::{
         keyboard::LedState,
         pointer::{CursorImageAttributes, CursorImageStatus},
@@ -40,7 +42,7 @@ use smithay::{
         wayland_protocols::wp::presentation_time::server::wp_presentation_feedback,
         wayland_server::{Display, protocol::wl_surface},
     },
-    utils::{DeviceFd, IsAlive, Scale},
+    utils::{DeviceFd, IsAlive, Logical, Point, Scale, Transform},
     wayland::{
         compositor,
         dmabuf::{
@@ -93,6 +95,136 @@ impl Backend for X11Data {
     fn early_import(&mut self, _surface: &wl_surface::WlSurface) {}
     fn update_led_state(&mut self, _led_state: LedState) {}
     fn reload_cursor(&mut self, _theme: Option<&str>, _size: Option<u32>) {}
+
+    fn capture_screenshot(
+        &mut self,
+        output: &Output,
+        space: &Space<WindowElement>,
+        pointer_location: Point<f64, Logical>,
+        cursor_status: &CursorImageStatus,
+        show_window_preview: bool,
+        blur: crate::config::BlurConfig,
+        _now: Duration,
+    ) -> Option<crate::state::CapturedFrame> {
+        use smithay::backend::allocator::Fourcc;
+        use smithay::backend::renderer::element::{AsRenderElements, Element, RenderElement};
+        use smithay::backend::renderer::gles::GlesTexture;
+        use smithay::backend::renderer::{
+            Color32F, ExportMem, Frame, Offscreen, Renderer, Texture,
+        };
+        use smithay::utils::Rectangle;
+        use crate::render::output_elements;
+        use crate::state::CapturedFrame;
+
+        let scale = Scale::from(output.current_scale().fractional_scale());
+        let output_transform = output.current_transform();
+        let mode = output.current_mode()?;
+        let size = mode.size;
+
+        let renderer = &mut self.renderer;
+
+        let output_geometry = space.output_geometry(output)?;
+
+        let mut pointer_element = PointerElement::default();
+        let mut custom_elements: Vec<CustomRenderElements<GlesRenderer>> = Vec::new();
+        if output_geometry.to_f64().contains(pointer_location) {
+            let cursor_hotspot = if let CursorImageStatus::Surface(surface) = cursor_status {
+                compositor::with_states(surface, |states| {
+                    states
+                        .data_map
+                        .get::<Mutex<CursorImageAttributes>>()
+                        .unwrap()
+                        .lock()
+                        .unwrap()
+                        .hotspot
+                })
+            } else {
+                (0, 0).into()
+            };
+            let cursor_pos = pointer_location - output_geometry.loc.to_f64();
+            pointer_element.set_status(cursor_status.clone());
+            custom_elements.extend(pointer_element.render_elements(
+                renderer,
+                (cursor_pos - cursor_hotspot.to_f64())
+                    .to_physical(scale)
+                    .to_i32_round(),
+                scale,
+                1.0,
+            ));
+        }
+
+        let (elements, _clear_color) =
+            output_elements(output, space, custom_elements, renderer, show_window_preview, blur);
+
+        let fourcc = Fourcc::Abgr8888;
+        let buffer_size = size.to_logical(1).to_buffer(1, Transform::Normal);
+
+        let Ok(mut texture): Result<GlesTexture, _> = renderer.create_buffer(fourcc, buffer_size)
+        else {
+            error!("Failed to create offscreen texture for screenshot");
+            return None;
+        };
+
+        let Ok(mut target) = renderer.bind(&mut texture) else {
+            error!("Failed to bind offscreen texture for screenshot");
+            return None;
+        };
+
+        let transform_inv = output_transform.invert();
+        let output_rect = Rectangle::from_size(transform_inv.transform_size(size));
+
+        let Ok(mut frame) = renderer.render(&mut target, size, transform_inv) else {
+            error!("Failed to start rendering for screenshot");
+            return None;
+        };
+
+        if frame.clear(Color32F::TRANSPARENT, &[output_rect]).is_err() {
+            error!("Failed to clear for screenshot");
+            return None;
+        }
+
+        for element in elements.iter().rev() {
+            let src = element.src();
+            let dst = element.geometry(scale);
+            if let Some(mut damage) = output_rect.intersection(dst) {
+                damage.loc -= dst.loc;
+                let blur_cache = if element.is_framebuffer_effect() {
+                    Some(smithay::utils::user_data::UserDataMap::new())
+                } else {
+                    None
+                };
+                if let Some(ref cache) = blur_cache {
+                    let _ = element.capture_framebuffer(&mut frame, src, dst, cache);
+                }
+                let _ = element.draw(&mut frame, src, dst, &[damage], &[], blur_cache.as_ref());
+            }
+        }
+
+        if frame.finish().is_err() {
+            error!("Failed to finish rendering for screenshot");
+            return None;
+        }
+
+        let Ok(mapping) = renderer.copy_framebuffer(
+            &target,
+            Rectangle::from_size(target.size()),
+            fourcc,
+        ) else {
+            error!("Failed to copy framebuffer for screenshot");
+            return None;
+        };
+
+        let Ok(bytes) = renderer.map_texture(&mapping) else {
+            error!("Failed to map texture for screenshot");
+            return None;
+        };
+
+        Some(CapturedFrame {
+            pixels: bytes.to_vec(),
+            width: size.w as u32,
+            height: size.h as u32,
+        })
+    }
 }
 
 pub fn run_x11() {
@@ -303,6 +435,12 @@ pub fn run_x11() {
 
     state.run_init_commands();
 
+    // Start the bakawm-ctl IPC server.
+    match crate::ipc::start_ipc_server(&mut state) {
+        Ok(path) => info!("IPC socket listening at {}", path.display()),
+        Err(err) => warn!("Failed to start IPC server: {}", err),
+    }
+
     if let Some(watcher) = crate::config::spawn_config_watcher(&event_loop.handle()) {
         state.config_watcher = Some(crate::state::ConfigWatcher(watcher));
     }
@@ -417,6 +555,7 @@ pub fn run_x11() {
                 &mut backend_data.damage_tracker,
                 age.into(),
                 state.show_window_preview,
+                state.config.blur, // blur config
             );
 
             match render_res {

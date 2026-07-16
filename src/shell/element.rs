@@ -533,7 +533,7 @@ impl RenderElement<GlesRenderer> for WindowRenderElement {
     }
 }
 
-type UdevMultiRenderer<'a, 'b> = MultiRenderer<
+pub type UdevMultiRenderer<'a, 'b> = MultiRenderer<
     'a,
     'b,
     smithay::backend::renderer::multigpu::gbm::GbmGlesBackend<smithay::backend::renderer::gles::GlesRenderer, smithay::backend::drm::DrmDeviceFd>,

@@ -47,7 +47,7 @@ use smithay::reexports::calloop::generic::Generic;
 use smithay::reexports::calloop::{Interest, LoopHandle, Mode, PostAction};
 use smithay::reexports::gbm::Modifier;
 use smithay::utils::{Logical, Physical, Point, Scale, Size, Transform};
-use tracing::{debug, error, info, trace, warn};
+use tracing::{debug, error, trace, warn};
 use zbus::object_server::SignalEmitter;
 
 use crate::dbus::mutter_screen_cast::{self, CursorMode};
@@ -922,7 +922,7 @@ impl Cast {
             }
         }
         if count > 0 {
-            tracing::info!("queue_completed_buffers: queued {count} buffers, remaining={}", inner.rendering_buffers.len());
+            tracing::trace!("queue_completed_buffers: queued {count} buffers, remaining={}", inner.rendering_buffers.len());
         }
     }
 
@@ -976,7 +976,7 @@ impl Cast {
         size: Size<i32, Physical>,
         scale: Scale<f64>,
     ) -> bool {
-        info!("dequeue_buffer_and_render called, elements={}, size={:?}", elements.len(), size);
+        tracing::trace!("dequeue_buffer_and_render called, elements={}, size={:?}", elements.len(), size);
         let mut inner = self.inner.borrow_mut();
 
         let CastState::Ready {
@@ -1018,7 +1018,7 @@ impl Cast {
             elements = &elements[cursor_data.elem_count..];
         }
         let (damage, states) = damage_tracker.damage_output(1, elements).unwrap();
-        info!("damage_output result: damage={:?}, elements_count={}", damage.is_some(), elements.len());
+        tracing::trace!("damage_output result: damage={:?}, elements_count={}", damage.is_some(), elements.len());
 
         if self.cursor_mode == CursorMode::Metadata {
             let (damage, _states) = cursor_damage_tracker
@@ -1030,7 +1030,7 @@ impl Cast {
         }
 
         if damage.is_none() && !has_cursor_update {
-            info!("no damage, skipping frame");
+            tracing::trace!("no damage, skipping frame");
             return false;
         }
         *last_cursor_location = Some(cursor_data.location);
@@ -1070,7 +1070,7 @@ impl Cast {
 
             match res {
                 Ok(sync_point) => {
-                    info!("rendered frame to dmabuf successfully, seq={}", self.sequence_counter);
+                    tracing::trace!("rendered frame to dmabuf successfully, seq={}", self.sequence_counter);
                     mark_buffer_as_good(pw_buffer, &mut self.sequence_counter);
                     self.queue_after_sync(pw_buffer, sync_point);
                     true

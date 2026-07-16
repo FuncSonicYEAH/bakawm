@@ -1,5 +1,7 @@
+pub mod blur;
 pub mod border;
 pub mod clipped_surface;
+pub mod framebuffer_effect;
 pub mod render_elements;
 pub mod resources;
 pub mod shader_element;
