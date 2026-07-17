@@ -10,6 +10,7 @@ Before building bakawm, make sure the following system libraries and tools are i
 
 - Rust toolchain (1.85+)
 - pkg-config
+- clang
 - libudev
 - libdrm
 - libgbm
@@ -26,7 +27,7 @@ Before building bakawm, make sure the following system libraries and tools are i
 On Debian/Ubuntu:
 
 ```bash
-sudo apt install build-essential pkg-config libudev-dev libdrm-dev libgbm-dev \
+sudo apt install build-essential pkg-config clang libudev-dev libdrm-dev libgbm-dev \
     libinput-dev libxkbcommon-dev libseat-dev libdisplay-info-dev \
     wayland-protocols libegl-dev libx11-dev libx11-xcb-dev \
     libpipewire-0.3-dev libdbus-1-dev
@@ -35,7 +36,7 @@ sudo apt install build-essential pkg-config libudev-dev libdrm-dev libgbm-dev \
 On Fedora:
 
 ```bash
-sudo dnf install gcc pkg-config systemd-devel libdrm-devel gbm-devel \
+sudo dnf install gcc pkg-config clang systemd-devel libdrm-devel gbm-devel \
     libinput-devel libxkbcommon-devel libseat-devel libdisplay-info-devel \
     wayland-devel mesa-libEGL-devel libX11-devel \
     pipewire-devel dbus-devel
@@ -44,7 +45,7 @@ sudo dnf install gcc pkg-config systemd-devel libdrm-devel gbm-devel \
 On Arch Linux:
 
 ```bash
-sudo pacman -S base-devel pkg-config systemd-libs libdrm gbm libinput \
+sudo pacman -S base-devel pkg-config clang systemd-libs libdrm gbm libinput \
     libxkbcommon seatd libdisplay-info wayland-protocols mesa libx11 \
     pipewire dbus
 ```
@@ -52,7 +53,7 @@ sudo pacman -S base-devel pkg-config systemd-libs libdrm gbm libinput \
 On Void Linux:
 
 ```bash
-sudo xbps-install base-devel pkg-config libudev-devel libdrm-devel \
+sudo xbps-install base-devel clang pkg-config libudev-devel libdrm-devel \
     gbm-devel libinput-devel libxkbcommon-devel seatd-devel \
     libdisplay-info-devel wayland-devel mesa-devel libX11-devel \
     pipewire-devel dbus-devel
@@ -61,7 +62,7 @@ sudo xbps-install base-devel pkg-config libudev-devel libdrm-devel \
 On Alpine Linux:
 
 ```bash
-sudo apk add build-base pkgconf eudev-dev libdrm-dev mesa-gbm-dev \
+sudo apk add build-base pkgconf clang eudev-dev libdrm-dev mesa-gbm-dev \
     libinput-dev libxkbcommon-dev seatd-dev libdisplay-info-dev \
     wayland-dev mesa-dev libx11-dev \
     pipewire-dev dbus-dev
