@@ -205,7 +205,9 @@ The config file is watched for changes and will be automatically reloaded.
 
 ## Acknowledgments
 
-- [Smithay](https://github.com/Smithay/smithay) - The Wayland compositor framework that bakawm is built upon. 
-- [niri](https://github.com/niri-wm/niri) - A scrollable-tiling Wayland compositor. bakawm references portions of niri's source code during development. 
+- [Smithay](https://github.com/Smithay/smithay) - The Wayland compositor framework that bakawm is built upon. Neat!
+- [niri](https://github.com/niri-wm/niri) - A scrollable-tiling Wayland compositor. bakawm references portions of niri's source code during development. Very Thanks!
 
-#### Verrrrrrrrrrrrrrrry thanks these project!!!
+## License
+
+This project is licensed under the [GNU General Public License v3.0 or later](https://www.gnu.org/licenses/gpl-3.0.html).
