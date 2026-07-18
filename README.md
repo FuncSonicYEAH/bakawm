@@ -68,6 +68,15 @@ sudo apk add build-base pkgconf clang eudev-dev libdrm-dev mesa-gbm-dev \
     pipewire-dev dbus-dev
 ```
 
+## Distribution Packages
+
+### Arch Linux (AUR)
+- Thanks ShinKouyo
+
+```bash
+yay -S bakawm-git
+```
+
 ## Building
 
 ```bash
