@@ -1,7 +1,7 @@
 use std::{cell::RefCell, convert::TryInto, process::Command, sync::atomic::Ordering};
 
 use crate::config::BindConfig;
-use crate::shell::{PointerMoveSurfaceGrab, PointerResizeSurfaceGrab, ResizeEdge, ResizeData, ResizeState, SurfaceData};
+use crate::shell::{PointerMoveSurfaceGrab, PointerResizeSurfaceGrab, ResizeEdge, ResizeData, ResizeState, SurfaceData, WindowElement};
 use crate::{AnvilState, focus::PointerFocusTarget, shell::FullscreenSurface};
 
 #[cfg(feature = "udev")]
@@ -80,14 +80,10 @@ impl<BackendData: Backend> AnvilState<BackendData> {
                     if let Some(crate::focus::KeyboardFocusTarget::Window(window)) =
                         keyboard.current_focus()
                     {
-                        use smithay::desktop::WindowSurface;
-                        match window.underlying_surface() {
-                            WindowSurface::Wayland(w) => w.send_close(),
-                            #[cfg(feature = "xwayland")]
-                            WindowSurface::X11(w) => {
-                                let _ = w.close();
-                            }
-                        }
+                        // Queue close animation (snapshot captured during next render).
+                        // send_close() is deferred until after the snapshot is captured
+                        // to ensure the window texture is still available.
+                        self.queue_close_animation(&WindowElement(window.clone()));
                     }
                 }
             }

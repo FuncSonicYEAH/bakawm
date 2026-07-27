@@ -200,11 +200,6 @@ fn main() {
                     bakawm::winit::run_winit();
                     return;
                 }
-                #[allow(clippy::disallowed_macros)]
-                {
-                    println!("No backend available. Compile with a backend feature.");
-                    std::process::exit(1);
-                }
             } else {
                 #[allow(clippy::disallowed_macros)]
                 {

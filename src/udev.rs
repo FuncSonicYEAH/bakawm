@@ -216,8 +216,24 @@ impl Backend for UdevData {
     }
 
     fn reload_cursor(&mut self, theme: Option<&str>, size: Option<u32>) {
+
         self.pointer_image = crate::cursor::Cursor::load_with_config(theme, size);
         self.pointer_images.clear();
+    }
+
+    fn queue_redraw(&mut self, output: &Output) {
+        if let Some(id) = output.user_data().get::<UdevOutputId>() {
+            if let Some(gpu) = self.backends.get_mut(&id.device_id) {
+                if let Some(surface) = gpu.surfaces.get_mut(&id.crtc) {
+                    let _: Result<_, _> = surface.drm_output.queue_frame(None);
+                }
+            }
+        }
+    }
+
+    fn with_primary_renderer<T>(&mut self, f: impl FnOnce(&mut GlesRenderer) -> T) -> Option<T> {
+        let mut renderer = self.gpus.single_renderer(&self.primary_gpu).ok()?;
+        Some(f(renderer.as_mut()))
     }
 
     fn capture_screenshot(
@@ -320,7 +336,7 @@ impl Backend for UdevData {
         }
 
         let (elements, _clear_color) =
-            output_elements(output, space, custom_elements, &mut renderer, show_window_preview, config);
+            output_elements(output, space, &[], custom_elements, &mut renderer, show_window_preview, config);
 
         let fourcc = Fourcc::Abgr8888;
         let buffer_size = size.to_logical(1).to_buffer(1, Transform::Normal);
@@ -431,16 +447,6 @@ impl UdevData {
         self.ipc_outputs.clone()
     }
 
-    #[cfg(feature = "xdp-gnome-screencast")]
-    pub fn queue_redraw(&mut self, output: &Output) {
-        if let Some(id) = output.user_data().get::<UdevOutputId>() {
-            if let Some(gpu) = self.backends.get_mut(&id.device_id) {
-                if let Some(surface) = gpu.surfaces.get_mut(&id.crtc) {
-                    let _: Result<_, _> = surface.drm_output.queue_frame(None);
-                }
-            }
-        }
-    }
 }
 
 pub fn run_udev() {
@@ -1700,6 +1706,10 @@ impl AnvilState<UdevData> {
                 // So lets ignore that in those cases to avoid thrashing performance.
                 trace!("scheduling repaint timer immediately on {:?}", crtc);
                 Timer::immediate()
+            } else if self.has_active_animations() {
+                // Active animations need frequent repaints. Use 1ms to avoid
+                // GPU pipeline congestion (Timer::immediate() causes stuttering).
+                Timer::from_duration(Duration::from_millis(1))
             } else {
                 trace!(
                     "scheduling repaint timer with delay {:?} on {:?}",
@@ -1829,6 +1839,7 @@ impl AnvilState<UdevData> {
                 surface,
                 &mut renderer,
                 &self.space,
+                &self.closing_windows,
                 &output,
                 self.pointer.current_location(),
                 &pointer_image,
@@ -1868,6 +1879,9 @@ impl AnvilState<UdevData> {
         }
 
         drop(renderer);
+
+        // Cleanup finished close animations (after drop(renderer) so self is no longer borrowed)
+        self.cleanup_finished_close_animations();
 
         for id in casts_to_stop {
             self.stop_cast(id);
@@ -1991,6 +2005,7 @@ fn render_surface(
     surface: &mut SurfaceData,
     renderer: &mut UdevRenderer<'_>,
     space: &Space<WindowElement>,
+    closing_windows: &[crate::shell::closing_window::ClosingWindow],
     output: &Output,
     pointer_location: Point<f64, Logical>,
     pointer_image: &MemoryRenderBuffer,
@@ -2076,7 +2091,7 @@ fn render_surface(
     }
 
     let (elements, clear_color) =
-        output_elements(output, space, custom_elements, renderer, show_window_preview, config);
+        output_elements(output, space, closing_windows, custom_elements, renderer, show_window_preview, config);
 
     let frame_mode = if surface.disable_direct_scanout {
         FrameFlags::empty()

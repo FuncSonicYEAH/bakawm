@@ -35,7 +35,7 @@ use crate::{
     config::{BlurConfig, Config},
     drawing::{CLEAR_COLOR, CLEAR_COLOR_FULLSCREEN, PointerRenderElement},
     render_helpers::{blur::BlurOptions, framebuffer_effect::FramebufferEffectElement},
-    shell::{FullscreenSurface, WindowElement, WindowRenderElement},
+    shell::{FullscreenSurface, WindowElement, WindowRenderElement, closing_window::ClosingWindowRenderElement},
 };
 
 #[cfg(feature = "udev")]
@@ -72,6 +72,7 @@ smithay::backend::renderer::element::render_elements! {
     Window=Wrap<E>,
     Custom=CustomRenderElements<R>,
     Preview=CropRenderElement<RelocateRenderElement<RescaleRenderElement<E>>>,
+    OpenAnim=RescaleRenderElement<E>,
 }
 
 impl<R: Renderer + ImportAll + ImportMem, E: RenderElement<R> + std::fmt::Debug> std::fmt::Debug
@@ -83,6 +84,7 @@ impl<R: Renderer + ImportAll + ImportMem, E: RenderElement<R> + std::fmt::Debug>
             Self::Window(arg0) => f.debug_tuple("Window").field(arg0).finish(),
             Self::Custom(arg0) => f.debug_tuple("Custom").field(arg0).finish(),
             Self::Preview(arg0) => f.debug_tuple("Preview").field(arg0).finish(),
+            Self::OpenAnim(arg0) => f.debug_tuple("OpenAnim").field(arg0).finish(),
             Self::_GenericCatcher(arg0) => f.debug_tuple("_GenericCatcher").field(arg0).finish(),
         }
     }
@@ -103,6 +105,7 @@ where
 {
     Output(OutputRenderElements<R, E>),
     Blur(FramebufferEffectElement),
+    ClosingWindow(ClosingWindowRenderElement),
 }
 
 impl<R, E> std::fmt::Debug for OutputRenderElementsWithBlur<R, E>
@@ -115,6 +118,7 @@ where
         match self {
             Self::Output(e) => f.debug_tuple("Output").field(e).finish(),
             Self::Blur(e) => f.debug_tuple("Blur").field(e).finish(),
+            Self::ClosingWindow(e) => f.debug_tuple("ClosingWindow").field(e).finish(),
         }
     }
 }
@@ -140,6 +144,7 @@ where
         match self {
             Self::Output(e) => e.id(),
             Self::Blur(e) => e.id(),
+            Self::ClosingWindow(e) => e.id(),
         }
     }
 
@@ -147,6 +152,7 @@ where
         match self {
             Self::Output(e) => e.current_commit(),
             Self::Blur(e) => e.current_commit(),
+            Self::ClosingWindow(e) => e.current_commit(),
         }
     }
 
@@ -154,6 +160,7 @@ where
         match self {
             Self::Output(e) => e.geometry(scale),
             Self::Blur(e) => e.geometry(scale),
+            Self::ClosingWindow(e) => e.geometry(scale),
         }
     }
 
@@ -161,6 +168,7 @@ where
         match self {
             Self::Output(e) => e.transform(),
             Self::Blur(e) => e.transform(),
+            Self::ClosingWindow(e) => e.transform(),
         }
     }
 
@@ -168,6 +176,7 @@ where
         match self {
             Self::Output(e) => e.src(),
             Self::Blur(e) => e.src(),
+            Self::ClosingWindow(e) => e.src(),
         }
     }
 
@@ -179,6 +188,7 @@ where
         match self {
             Self::Output(e) => e.damage_since(scale, commit),
             Self::Blur(e) => e.damage_since(scale, commit),
+            Self::ClosingWindow(e) => e.damage_since(scale, commit),
         }
     }
 
@@ -186,6 +196,7 @@ where
         match self {
             Self::Output(e) => e.opaque_regions(scale),
             Self::Blur(e) => e.opaque_regions(scale),
+            Self::ClosingWindow(e) => e.opaque_regions(scale),
         }
     }
 
@@ -193,6 +204,7 @@ where
         match self {
             Self::Output(e) => e.alpha(),
             Self::Blur(e) => e.alpha(),
+            Self::ClosingWindow(e) => e.alpha(),
         }
     }
 
@@ -200,6 +212,7 @@ where
         match self {
             Self::Output(e) => e.kind(),
             Self::Blur(e) => e.kind(),
+            Self::ClosingWindow(e) => e.kind(),
         }
     }
 
@@ -207,6 +220,7 @@ where
         match self {
             Self::Output(e) => e.is_framebuffer_effect(),
             Self::Blur(e) => e.is_framebuffer_effect(),
+            Self::ClosingWindow(e) => e.is_framebuffer_effect(),
         }
     }
 }
@@ -227,7 +241,8 @@ where
     ) -> Result<(), GlesError> {
         match self {
             Self::Output(e) => e.draw(frame, src, dst, damage, opaque_regions, cache),
-            Self::Blur(e) => e.draw(frame, src, dst, damage, opaque_regions, cache),
+            Self::Blur(e) => RenderElement::<GlesRenderer>::draw(e, frame, src, dst, damage, opaque_regions, cache),
+            Self::ClosingWindow(e) => RenderElement::<GlesRenderer>::draw(e, frame, src, dst, damage, opaque_regions, cache),
         }
     }
 
@@ -238,6 +253,7 @@ where
         match self {
             Self::Output(e) => e.underlying_storage(renderer),
             Self::Blur(e) => e.underlying_storage(renderer),
+            Self::ClosingWindow(e) => e.underlying_storage(renderer),
         }
     }
 
@@ -250,7 +266,8 @@ where
     ) -> Result<(), GlesError> {
         match self {
             Self::Output(e) => e.capture_framebuffer(frame, src, dst, cache),
-            Self::Blur(e) => e.capture_framebuffer(frame, src, dst, cache),
+            Self::Blur(e) => RenderElement::<GlesRenderer>::capture_framebuffer(e, frame, src, dst, cache),
+            Self::ClosingWindow(e) => RenderElement::<GlesRenderer>::capture_framebuffer(e, frame, src, dst, cache),
         }
     }
 }
@@ -282,6 +299,12 @@ where
                 )
                 .map_err(Into::into)
             }
+            Self::ClosingWindow(e) => {
+                RenderElement::<GlesRenderer>::draw(
+                    e, frame.as_mut(), src, dst, damage, opaque_regions, cache,
+                )
+                .map_err(Into::into)
+            }
         }
     }
 
@@ -293,6 +316,7 @@ where
         match self {
             Self::Output(e) => e.underlying_storage(renderer),
             Self::Blur(e) => e.underlying_storage(gles),
+            Self::ClosingWindow(e) => e.underlying_storage(gles),
         }
     }
 
@@ -306,6 +330,10 @@ where
         match self {
             Self::Output(e) => e.capture_framebuffer(frame, src, dst, cache),
             Self::Blur(e) => {
+                RenderElement::<GlesRenderer>::capture_framebuffer(e, frame.as_mut(), src, dst, cache)
+                    .map_err(Into::into)
+            }
+            Self::ClosingWindow(e) => {
                 RenderElement::<GlesRenderer>::capture_framebuffer(e, frame.as_mut(), src, dst, cache)
                     .map_err(Into::into)
             }
@@ -488,6 +516,7 @@ fn resolve_layer_blur(namespace: &str, config: &Config) -> BlurConfig {
 pub fn output_elements<R>(
     output: &Output,
     space: &Space<WindowElement>,
+    closing_windows: &[crate::shell::closing_window::ClosingWindow],
     custom_elements: impl IntoIterator<Item = CustomRenderElements<R>>,
     renderer: &mut R,
     show_window_preview: bool,
@@ -616,6 +645,12 @@ where
             // Iterate windows in z-order (topmost first, matching render_elements_for_region's .rev())
             let windows: Vec<_> = space.elements_for_output(output).collect();
             for window in windows.iter().rev() {
+                // Skip rendering until the window is properly centered
+                // (avoids a position flash on the first frame before centering)
+                if window.decoration_state().needs_center {
+                    continue;
+                }
+
                 let win_geo = match space.element_geometry(window) {
                     Some(geo) => geo,
                     None => continue,
@@ -633,9 +668,33 @@ where
                     );
 
                 for elem in window_elements {
-                    output_render_elements.push(OutputRenderElementsWithBlur::from(
-                        OutputRenderElements::Space(SpaceRenderElements::Element(Wrap::from(elem))),
-                    ));
+                    // Check if this window has an active open animation
+                    let open_anim = window.decoration_state().open_animation.clone();
+                    if let Some(ref anim) = open_anim {
+                        let progress = anim.clamped_value().clamp(0., 1.);
+                        if !anim.is_done() {
+                            // Scale from config scale to 1.0 based on animation progress
+                            let start_scale = config.animations.window_open.scale;
+                            let scale_factor = start_scale + progress * (1.0 - start_scale);
+                            // Scale from center of window
+                            let center = Point::<i32, smithay::utils::Physical>::from((
+                                (win_geo.size.w / 2),
+                                (win_geo.size.h / 2),
+                            ));
+                            let scaled = RescaleRenderElement::from_element(elem, center, scale_factor.max(0.));
+                            output_render_elements.push(OutputRenderElementsWithBlur::from(
+                                OutputRenderElements::OpenAnim(scaled),
+                            ));
+                        } else {
+                            output_render_elements.push(OutputRenderElementsWithBlur::from(
+                                OutputRenderElements::Space(SpaceRenderElements::Element(Wrap::from(elem))),
+                            ));
+                        }
+                    } else {
+                        output_render_elements.push(OutputRenderElementsWithBlur::from(
+                            OutputRenderElements::Space(SpaceRenderElements::Element(Wrap::from(elem))),
+                        ));
+                    }
                 }
 
                 // Check if this window should have blur
@@ -693,6 +752,18 @@ where
 
             // Append xray blur elements after all windows (drawn after bg+bottom but before windows)
             output_render_elements.extend(xray_blur_elements);
+
+            // Render closing window animations
+            if !closing_windows.is_empty() {
+                let output_scale_val = output.current_scale().fractional_scale();
+                let output_geo_val = space.output_geometry(output).unwrap_or_default();
+                let view_rect = output_geo_val.to_f64();
+
+                for closing in closing_windows {
+                    let elem = closing.render(view_rect, Scale::from(output_scale_val));
+                    output_render_elements.push(OutputRenderElementsWithBlur::ClosingWindow(elem));
+                }
+            }
         }
 
         // Lower layers (rendered below windows). Background is the bottom-most layer, so it
@@ -708,6 +779,7 @@ where
 pub fn render_output<'a, 'd, R>(
     output: &'a Output,
     space: &'a Space<WindowElement>,
+    closing_windows: &[crate::shell::closing_window::ClosingWindow],
     custom_elements: impl IntoIterator<Item = CustomRenderElements<R>>,
     renderer: &'a mut R,
     framebuffer: &'a mut R::Framebuffer<'_>,
@@ -726,6 +798,6 @@ where
     OutputRenderElementsWithBlur<R, WindowRenderElement>: RenderElement<R>,
 {
     let (elements, clear_color) =
-        output_elements(output, space, custom_elements, renderer, show_window_preview, config);
+        output_elements(output, space, closing_windows, custom_elements, renderer, show_window_preview, config);
     damage_tracker.render_output(renderer, framebuffer, age, &elements, clear_color)
 }

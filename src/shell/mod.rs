@@ -48,6 +48,7 @@ use crate::{
 mod element;
 mod grabs;
 pub(crate) mod ssd;
+pub mod closing_window;
 #[cfg(feature = "xwayland")]
 mod x11;
 mod xdg;
@@ -112,6 +113,53 @@ impl<BackendData: Backend> CompositorHandler for AnvilState<BackendData> {
             return &state.compositor_state;
         }
         panic!("Unknown client data type")
+    }
+
+    /// Called when a wl_surface is destroyed.
+    ///
+    /// This handles the case where a client disconnects or a surface is destroyed
+    /// before going through the normal unmap flow. In this case, we need to
+    /// capture the close animation snapshot here, since the surface's content
+    /// is about to become invalid and toplevel_destroyed may be called after
+    /// the surface is already gone.
+    fn destroyed(&mut self, surface: &WlSurface) {
+        // Find the window that owns this surface
+        let Some(window) = self
+            .space
+            .elements()
+            .find(|w| w.wl_surface().as_deref() == Some(surface))
+            .cloned()
+        else {
+            return;
+        };
+
+        // Only capture if we don't already have a snapshot
+        if window.decoration_state().pending_close_snapshot.is_some() {
+            return;
+        }
+
+        // Check if close animation is enabled
+        if !self.config.animations.enable || !self.config.animations.window_close.enable {
+            return;
+        }
+
+        // Capture the snapshot
+        let output = self.space.outputs_for_element(&window).first().cloned();
+        let config = self.config.clone();
+        let snapshot = self.backend_data.with_primary_renderer(|renderer| {
+            crate::state::AnvilState::<BackendData>::capture_close_snapshot(
+                &self.space,
+                &config,
+                &window,
+                renderer,
+                output.as_ref(),
+            )
+        });
+
+        if let Some(Some(snapshot)) = snapshot {
+            tracing::debug!("compositor::destroyed: captured close animation snapshot");
+            window.decoration_state().pending_close_snapshot = Some(snapshot);
+        }
     }
 
     fn new_surface(&mut self, surface: &WlSurface) {
@@ -397,7 +445,7 @@ fn place_new_window(
     pointer_location: Point<f64, Logical>,
     window: &WindowElement,
     activate: bool,
-) {
+) -> bool {
     let output = space
         .output_under(pointer_location)
         .next()
@@ -440,6 +488,8 @@ fn place_new_window(
             });
         }
     }
+
+    needs_center
 }
 
 pub fn fixup_positions(space: &mut Space<WindowElement>, pointer_location: Point<f64, Logical>) {

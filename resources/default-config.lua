@@ -137,6 +137,61 @@ return {
         xray = false,
     },
 
+    -- Animations configuration
+    -- Controls window open/close animations.
+    animations = {
+        -- Globally enable all animations
+        enable = true,
+
+        -- Window open animation (scales up from scale to 100%)
+        window_open = {
+            -- Enable this specific animation
+            enable = true,
+            -- Duration in milliseconds
+            duration_ms = 250,
+            -- Easing curve: "linear", "ease-out-quad", "ease-out-cubic", "ease-out-expo",
+            -- or { "cubic-bezier", x1, y1, x2, y2 }
+            curve = "ease-out-cubic",
+            -- Scale factor at start of animation (0.0 to 1.0)
+            -- Window starts at this scale and animates to 1.0
+            -- e.g. 0.8 = start at 80% size, 0.5 = start at half size
+            scale = 0.8,
+        },
+
+        -- Window close animation (shrinks from 100% to scale)
+        window_close = {
+            enable = true,
+            duration_ms = 250,
+            curve = "ease-out-cubic",
+            -- Scale factor at end of animation (0.0 to 1.0)
+            -- Window shrinks from 1.0 down to this scale
+            -- e.g. 0.0 = shrink to nothing, 0.8 = shrink to 80% size
+            scale = 0.0,
+        },
+
+        -- ── Animation Presets ──────────────────────────────────────────
+        -- Uncomment one of the following presets to replace the defaults above.
+        --
+        -- Fast & snappy (no scale, short duration):
+        -- window_open  = { enable = true, duration_ms = 120, curve = "ease-out-cubic", scale = 1.0 },
+        -- window_close = { enable = true, duration_ms = 100, curve = "linear",        scale = 1.0 },
+        --
+        -- Smooth & elegant (slower, noticeable scale):
+        -- window_open  = { enable = true, duration_ms = 350, curve = "ease-out-expo",  scale = 0.85 },
+        -- window_close = { enable = true, duration_ms = 300, curve = "ease-out-cubic", scale = 0.0 },
+        --
+        -- Dramatic pop-in/pop-out:
+        -- window_open  = { enable = true, duration_ms = 400, curve = { "cubic-bezier", 0.34, 1.56, 0.64, 1.0 }, scale = 0.5 },
+        -- window_close = { enable = true, duration_ms = 300, curve = "ease-out-expo",                          scale = 0.0 },
+        --
+        -- Minimal (only fade, no scale):
+        -- window_open  = { enable = true, duration_ms = 200, curve = "ease-out-cubic", scale = 1.0 },
+        -- window_close = { enable = true, duration_ms = 200, curve = "ease-out-cubic", scale = 1.0 },
+        --
+        -- Disable animations entirely:
+        -- enable = false,
+    },
+
     -- Window rules
     -- Apply overrides to windows matching by app_id and/or title.
     -- Rules are evaluated in order; the first matching rule wins.

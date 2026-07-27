@@ -646,6 +646,20 @@ impl AsRenderElements<GlesRenderer> for WindowElement {
     ) -> Vec<C> {
         let window_bbox = SpaceElement::bbox(&self.0);
         let mut state = self.decoration_state();
+
+        // Apply open animation alpha
+        let effective_alpha = if let Some(ref anim) = state.open_animation {
+            let progress = anim.clamped_value().clamp(0., 1.) as f32;
+            if anim.is_done() {
+                state.open_animation = None;
+                alpha
+            } else {
+                alpha * progress
+            }
+        } else {
+            alpha
+        };
+
         let window_geo = SpaceElement::geometry(&self.0);
 
         let border_width = state.border.last_border_width;
@@ -692,7 +706,7 @@ impl AsRenderElements<GlesRenderer> for WindowElement {
         };
 
         let window_elements: Vec<WindowRenderElement> =
-            AsRenderElements::render_elements(&self.0, renderer, location, scale, alpha);
+            AsRenderElements::render_elements(&self.0, renderer, location, scale, effective_alpha);
 
         let mut vec: Vec<C> = {
             let mut result = Vec::new();
@@ -754,7 +768,7 @@ impl AsRenderElements<GlesRenderer> for WindowElement {
                     bw,
                     outer_radius,
                     scale.x as f32,
-                    alpha,
+                    effective_alpha,
                 );
                 let border_elem = cached
                     .clone()
@@ -784,7 +798,7 @@ impl AsRenderElements<GlesRenderer> for WindowElement {
                             &state.border.top,
                             border_loc,
                             scale,
-                            alpha,
+                            effective_alpha,
                             Kind::Unspecified,
                         )
                     ).into(),
@@ -795,7 +809,7 @@ impl AsRenderElements<GlesRenderer> for WindowElement {
                             &state.border.bottom,
                             Point::from((border_loc.x, border_loc.y + full_h_phys - bw_phys)),
                             scale,
-                            alpha,
+                            effective_alpha,
                             Kind::Unspecified,
                         )
                     ).into(),
@@ -806,7 +820,7 @@ impl AsRenderElements<GlesRenderer> for WindowElement {
                             &state.border.left,
                             Point::from((border_loc.x, border_loc.y + bw_phys)),
                             scale,
-                            alpha,
+                            effective_alpha,
                             Kind::Unspecified,
                         )
                     ).into(),
@@ -817,7 +831,7 @@ impl AsRenderElements<GlesRenderer> for WindowElement {
                             &state.border.right,
                             Point::from((border_loc.x + full_w_phys - bw_phys, border_loc.y + bw_phys)),
                             scale,
-                            alpha,
+                            effective_alpha,
                             Kind::Unspecified,
                         )
                     ).into(),
@@ -871,7 +885,7 @@ impl AsRenderElements<GlesRenderer> for WindowElement {
                     scale.x as f32,
                     window_geo_for_shadow,
                     win_radius,
-                    alpha,
+                    effective_alpha,
                 );
                 cached
                     .clone()

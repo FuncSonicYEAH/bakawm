@@ -20,6 +20,7 @@ use crate::drawing::{PointerElement, PointerRenderElement};
 use crate::render::OutputRenderElementsWithBlur;
 use crate::shell::WindowRenderElement;
 use crate::state::AnvilState;
+use crate::state::Backend;
 use crate::udev::UdevData;
 
 mod pw_utils;
@@ -247,6 +248,7 @@ pub fn render_for_screen_cast_inner(
         let (elements, _clear_color) = crate::render::output_elements(
             output,
             space,
+            &[],
             custom_elements,
             renderer,
             show_window_preview,

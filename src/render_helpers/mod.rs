@@ -7,6 +7,7 @@ pub mod resources;
 pub mod shader_element;
 pub mod shaders;
 pub mod shadow;
+pub mod texture;
 
 #[cfg(feature = "xdp-gnome-screencast")]
 use anyhow::Context;

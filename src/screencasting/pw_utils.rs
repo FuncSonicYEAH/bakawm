@@ -53,6 +53,7 @@ use zbus::object_server::SignalEmitter;
 use crate::dbus::mutter_screen_cast::{self, CursorMode};
 use crate::screencasting::{CastSessionId, CastStreamId, CastTarget, get_monotonic_time};
 use crate::state::AnvilState;
+use crate::state::Backend;
 use crate::udev::UdevData;
 
 use super::CastRenderElement;

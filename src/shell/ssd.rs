@@ -14,9 +14,25 @@ use smithay::{
 
 use std::cell::{RefCell, RefMut};
 
-use crate::{AnvilState, config::{CornerRadius, ShadowConfig}, render_helpers::{border::BorderRenderElement, shadow::ShadowRenderElement}, state::Backend};
+use crate::{AnvilState, animation::Animation, config::{CornerRadius, ShadowConfig}, render_helpers::{border::BorderRenderElement, shadow::ShadowRenderElement, texture::TextureBuffer}, state::Backend};
 
 use super::WindowElement;
+
+/// A pre-captured snapshot for close animation.
+///
+/// When a window surface is about to unmap (commits a null buffer), we capture
+/// its contents here. Later, when `toplevel_destroyed` fires, we use this
+/// snapshot to create the ClosingWindow animation.
+pub struct PendingCloseSnapshot {
+    /// Texture buffer containing the captured window contents.
+    pub buffer: TextureBuffer<smithay::backend::renderer::gles::GlesTexture>,
+    /// Window geometry size in logical coordinates.
+    pub geo_size: smithay::utils::Size<f64, Logical>,
+    /// Position of the window in the workspace.
+    pub pos: smithay::utils::Point<f64, Logical>,
+    /// Buffer offset.
+    pub buffer_offset: smithay::utils::Point<f64, Logical>,
+}
 
 pub struct WindowState {
     pub is_ssd: bool,
@@ -28,6 +44,16 @@ pub struct WindowState {
     pub has_shadow_shader: Option<bool>,
     pub cached_border_element: Option<BorderRenderElement>,
     pub cached_shadow_element: Option<ShadowRenderElement>,
+    /// Window open animation. Progress goes from 0 to 1.
+    pub open_animation: Option<Animation>,
+    /// Whether a close animation is in progress (window is closing).
+    pub close_animation: Option<Animation>,
+    /// Whether the window is waiting for its first commit to be properly centered.
+    /// While true, the window is not rendered to avoid a position flash.
+    pub needs_center: bool,
+    /// Pre-captured snapshot for close animation.
+    /// Set when the surface unmaps (commits null buffer), used in toplevel_destroyed.
+    pub pending_close_snapshot: Option<PendingCloseSnapshot>,
 }
 
 #[derive(Debug, Clone)]
@@ -142,13 +168,9 @@ impl HeaderBar {
     ) {
         match self.pointer_loc.as_ref() {
             Some(loc) if loc.x >= (self.width - BUTTON_WIDTH) as f64 => {
-                match window.0.underlying_surface() {
-                    WindowSurface::Wayland(w) => w.send_close(),
-                    #[cfg(feature = "xwayland")]
-                    WindowSurface::X11(w) => {
-                        let _ = w.close();
-                    }
-                };
+                // Queue close animation (snapshot captured during next render).
+                // send_close() is deferred until after the snapshot is captured.
+                state.queue_close_animation(window);
             }
             Some(loc) if loc.x >= (self.width - (BUTTON_WIDTH * 2)) as f64 => {
                 match window.0.underlying_surface() {
@@ -225,13 +247,9 @@ impl HeaderBar {
     ) {
         match self.pointer_loc.as_ref() {
             Some(loc) if loc.x >= (self.width - BUTTON_WIDTH) as f64 => {
-                match window.0.underlying_surface() {
-                    WindowSurface::Wayland(w) => w.send_close(),
-                    #[cfg(feature = "xwayland")]
-                    WindowSurface::X11(w) => {
-                        let _ = w.close();
-                    }
-                };
+                // Queue close animation (snapshot captured during next render).
+                // send_close() is deferred until after the snapshot is captured.
+                state.queue_close_animation(window);
             }
             Some(loc) if loc.x >= (self.width - (BUTTON_WIDTH * 2)) as f64 => {
                 match window.0.underlying_surface() {
@@ -367,6 +385,10 @@ impl WindowElement {
                 has_shadow_shader: None,
                 cached_border_element: None,
                 cached_shadow_element: None,
+                open_animation: None,
+                close_animation: None,
+                needs_center: false,
+                pending_close_snapshot: None,
             })
         });
 

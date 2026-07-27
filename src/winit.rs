@@ -93,6 +93,16 @@ impl Backend for WinitData {
     fn update_led_state(&mut self, _led_state: LedState) {}
     fn reload_cursor(&mut self, _theme: Option<&str>, _size: Option<u32>) {}
 
+    fn queue_redraw(&mut self, _output: &Output) {
+        // winit continuously renders, so just flag a full redraw
+        self.full_redraw = self.full_redraw.max(2);
+    }
+
+    fn with_primary_renderer<T>(&mut self, f: impl FnOnce(&mut GlesRenderer) -> T) -> Option<T> {
+        let mut renderer = self.backend.renderer();
+        Some(f(&mut renderer))
+    }
+
     fn capture_screenshot(
         &mut self,
         output: &Output,
@@ -151,7 +161,7 @@ impl Backend for WinitData {
         }
 
         let (elements, _clear_color) =
-            output_elements(output, space, custom_elements, renderer, show_window_preview, config);
+            output_elements(output, space, &[] as &[crate::shell::closing_window::ClosingWindow], custom_elements, renderer, show_window_preview, config);
 
         let fourcc = Fourcc::Abgr8888;
         let buffer_size = size.to_logical(1).to_buffer(1, Transform::Normal);
@@ -531,6 +541,7 @@ pub fn run_winit() {
                 render_output(
                     &output,
                     space,
+                    &state.closing_windows,
                     elements,
                     renderer,
                     &mut fb,
@@ -574,7 +585,12 @@ pub fn run_winit() {
 
                     backend.window().set_cursor_visible(cursor_visible);
 
+                    // Extract states first to release the render_output_result borrow
+                    // (which holds a reference to damage_tracker -> state)
                     let states = render_output_result.states;
+
+                    // Cleanup finished close animations
+                    state.cleanup_finished_close_animations();
 
                     update_primary_scanout_output(
                         &state.space,

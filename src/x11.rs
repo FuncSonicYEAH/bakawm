@@ -96,6 +96,16 @@ impl Backend for X11Data {
     fn update_led_state(&mut self, _led_state: LedState) {}
     fn reload_cursor(&mut self, _theme: Option<&str>, _size: Option<u32>) {}
 
+    fn queue_redraw(&mut self, _output: &Output) {
+        // x11 backend: no-op (continuous rendering)
+    }
+
+    fn with_primary_renderer<T>(&mut self, f: impl FnOnce(&mut GlesRenderer) -> T) -> Option<T> {
+        // x11 backend doesn't have a GlesRenderer
+        let _ = f;
+        None
+    }
+
     fn capture_screenshot(
         &mut self,
         output: &Output,
@@ -154,7 +164,7 @@ impl Backend for X11Data {
         }
 
         let (elements, _clear_color) =
-            output_elements(output, space, custom_elements, renderer, show_window_preview, config);
+            output_elements(output, space, &[], custom_elements, renderer, show_window_preview, config);
 
         let fourcc = Fourcc::Abgr8888;
         let buffer_size = size.to_logical(1).to_buffer(1, Transform::Normal);
@@ -549,11 +559,12 @@ pub fn run_x11() {
             let render_res = render_output(
                 &output,
                 &state.space,
+                &state.closing_windows,
                 elements,
                 &mut backend_data.renderer,
                 &mut fb,
                 &mut backend_data.damage_tracker,
-                age.into(),
+                age as usize,
                 state.show_window_preview,
                 &state.config,
             );

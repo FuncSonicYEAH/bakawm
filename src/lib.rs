@@ -9,6 +9,7 @@
 
 pub mod config;
 pub mod ipc;
+pub mod animation;
 #[cfg(any(feature = "udev", feature = "xwayland"))]
 pub mod cursor;
 pub mod drawing;

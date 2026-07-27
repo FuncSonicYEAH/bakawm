@@ -106,8 +106,9 @@ use crate::{
     focus::{KeyboardFocusTarget, PointerFocusTarget},
     ipc::{IpcRequest, IpcResponse, OutputInfo, WindowInfo},
     screencopy::{Screencopy, ScreencopyHandler, ScreencopyManagerState},
-    shell::WindowElement,
+    shell::{WindowElement, WindowRenderElement},
 };
+use smithay::backend::renderer::gles::GlesRenderer;
 #[cfg(feature = "xwayland")]
 use smithay::{
     utils::Size,
@@ -201,6 +202,9 @@ pub struct AnvilState<BackendData: Backend + 'static> {
     pub show_window_preview: bool,
 
     pub config: crate::config::Config,
+
+    /// Windows currently playing their close animation.
+    pub closing_windows: Vec<crate::shell::closing_window::ClosingWindow>,
 
     #[cfg(feature = "xdp-gnome-screencast")]
     pub screencasting: crate::screencasting::Screencasting,
@@ -853,6 +857,7 @@ impl<BackendData: Backend + 'static> AnvilState<BackendData> {
             renderdoc: renderdoc::RenderDoc::new().ok(),
             show_window_preview: false,
             config,
+            closing_windows: Vec::new(),
             #[cfg(feature = "xdp-gnome-screencast")]
             screencasting: crate::screencasting::Screencasting::new_stub(),
             #[cfg(feature = "xdp-gnome-screencast")]
@@ -1003,6 +1008,309 @@ impl<BackendData: Backend + 'static> AnvilState<BackendData> {
             let mut ws = window.decoration_state();
             ws.border.set_active(is_focused, geo.size.w, geo.size.h, border_width);
         });
+    }
+
+    /// Check if there are any active animations (open or close).
+    pub fn has_active_animations(&self) -> bool {
+        if !self.closing_windows.is_empty() {
+            return true;
+        }
+        // Check for open animations
+        for window in self.space.elements() {
+            let state = window.decoration_state();
+            if state.open_animation.is_some() {
+                return true;
+            }
+        }
+        false
+    }
+
+    /// Start close animation for a window.
+    ///
+    /// This captures the window's texture snapshot and starts the fade-out animation.
+    /// Returns true if animation was started, false if disabled.
+    pub fn start_close_animation(
+        &mut self,
+        window: &WindowElement,
+        renderer: &mut smithay::backend::renderer::gles::GlesRenderer,
+        output: &Output,
+    ) -> bool {
+        Self::start_close_animation_inner(
+            &mut self.closing_windows,
+            &self.space,
+            &self.config,
+            window,
+            renderer,
+            output,
+        )
+    }
+
+    /// Inner implementation of start_close_animation that takes specific fields
+    /// to avoid conflicting borrows on self.
+    pub(crate) fn start_close_animation_inner(
+        closing_windows: &mut Vec<crate::shell::closing_window::ClosingWindow>,
+        space: &Space<crate::shell::WindowElement>,
+        config: &crate::config::Config,
+        window: &WindowElement,
+        renderer: &mut smithay::backend::renderer::gles::GlesRenderer,
+        output: &Output,
+    ) -> bool {
+
+        let animations_config = &config.animations;
+        if !animations_config.enable || !animations_config.window_close.enable {
+            tracing::debug!("close animation disabled, skipping");
+            return false;
+        }
+
+        // Capture the snapshot first
+        let snapshot = match Self::capture_close_snapshot(space, config, window, renderer, Some(output)) {
+            Some(s) => s,
+            None => return false,
+        };
+
+        // Then start animation from snapshot
+        Self::start_close_animation_from_snapshot(
+            closing_windows, config, snapshot,
+        )
+    }
+
+    /// Capture a window's contents as a texture snapshot for close animation.
+    ///
+    /// This should be called while the window surface still has a valid buffer
+    /// (e.g. in a pre-commit hook when BufferAssignment::Removed is detected).
+    /// Returns the PendingCloseSnapshot if capture succeeded.
+    pub(crate) fn capture_close_snapshot(
+        space: &Space<crate::shell::WindowElement>,
+        _config: &crate::config::Config,
+        window: &WindowElement,
+        renderer: &mut smithay::backend::renderer::gles::GlesRenderer,
+        output: Option<&Output>,
+    ) -> Option<crate::shell::ssd::PendingCloseSnapshot> {
+        use smithay::backend::renderer::element::{AsRenderElements, Element, RenderElement};
+        use smithay::backend::renderer::gles::{GlesRenderer, GlesTexture};
+        use smithay::backend::renderer::{Bind, Frame, Offscreen, Renderer};
+        use smithay::backend::allocator::Fourcc;
+        use crate::render_helpers::texture::TextureBuffer;
+
+        // Get window geometry and position
+        let win_geo = match space.element_geometry(window) {
+            Some(geo) => geo,
+            None => {
+                tracing::warn!("close animation: window not found in space, skipping");
+                return None;
+            }
+        };
+        let geo_size = win_geo.size.to_f64();
+
+        // Resolve output: use provided or find from space (clone to avoid lifetime issues)
+        let output_cloned;
+        let output = match output {
+            Some(o) => o,
+            None => {
+                output_cloned = space.outputs_for_element(window).first().cloned();
+                match output_cloned.as_ref() {
+                    Some(o) => o,
+                    None => {
+                        tracing::warn!("close animation: no output for window");
+                        return None;
+                    }
+                }
+            },
+        };
+
+        let output_scale = output.current_scale().fractional_scale();
+        let scale = smithay::utils::Scale::from(output_scale);
+
+        // Render the window elements to a texture
+        let location = win_geo.loc.to_physical_precise_round(output_scale);
+        let output_geo = match space.output_geometry(output) {
+            Some(geo) => geo,
+            None => return None,
+        };
+
+        let window_elements: Vec<WindowRenderElement> =
+            AsRenderElements::<GlesRenderer>::render_elements(
+                window,
+                renderer,
+                location - output_geo.loc.to_physical_precise_round(output_scale),
+                scale,
+                1.0,
+            );
+
+        // Check if we actually captured any content
+        if window_elements.is_empty() {
+            tracing::debug!("close animation: no window elements to capture, skipping");
+            return None;
+        }
+
+        // Compute encompassing geometry for the elements
+        let encompassing_geo = window_elements
+            .iter()
+            .map(|e| smithay::backend::renderer::element::Element::geometry(e, scale))
+            .reduce(|a, b| a.merge(b))
+            .unwrap_or_else(|| smithay::utils::Rectangle::from_size(
+                (win_geo.size.w as i32, win_geo.size.h as i32).into()
+            ));
+
+        // If the encompassing geometry has zero area, the window content is gone
+        if encompassing_geo.size.w == 0 || encompassing_geo.size.h == 0 {
+            tracing::debug!("close animation: window content is empty (zero size), skipping");
+            return None;
+        }
+
+        let buffer_size = encompassing_geo.size;
+        let transform = smithay::utils::Transform::Normal;
+
+        // Render to offscreen texture
+        let buffer_size_for_create = buffer_size.to_logical(1).to_buffer(1, transform);
+        let texture: GlesTexture = match <GlesRenderer as Offscreen<GlesTexture>>::create_buffer(
+            renderer,
+            Fourcc::Abgr8888,
+            buffer_size_for_create,
+        ) {
+            Ok(t) => t,
+            Err(e) => {
+                warn!("Failed to create offscreen texture for close animation: {:?}", e);
+                return None;
+            }
+        };
+
+        // We need to clone the texture for the TextureBuffer since bind() borrows it
+        let texture_clone = texture.clone();
+        let mut texture_mut = texture;
+
+        let mut target = match <GlesRenderer as Bind<GlesTexture>>::bind(renderer, &mut texture_mut) {
+            Ok(t) => t,
+            Err(e) => {
+                warn!("Failed to bind offscreen texture for close animation: {:?}", e);
+                return None;
+            }
+        };
+
+        let output_transform = transform.invert();
+        let output_rect = smithay::utils::Rectangle::from_size(output_transform.transform_size(buffer_size));
+
+        let mut frame = match renderer.render(&mut target, buffer_size, output_transform) {
+            Ok(f) => f,
+            Err(e) => {
+                warn!("Failed to start render frame for close animation: {:?}", e);
+                return None;
+            }
+        };
+
+        if let Err(e) = frame.clear(smithay::backend::renderer::Color32F::TRANSPARENT, &[output_rect]) {
+            warn!("Failed to clear frame for close animation: {:?}", e);
+            return None;
+        }
+
+        let encompassing_loc = encompassing_geo.loc;
+
+        for element in &window_elements {
+            let geo = Element::geometry(element, scale);
+            let src = Element::src(element);
+            // Offset the element geometry so it's relative to the texture's top-left
+            // corner (encompassing_geo.loc) rather than the output origin.
+            // Without this offset, elements positioned far from the output origin
+            // would be clipped by the texture boundary.
+            let dst = Rectangle::new(geo.loc - encompassing_loc, geo.size);
+            if let Err(e) = RenderElement::<GlesRenderer>::draw(element, &mut frame, src, dst, &[dst], &[], None) {
+                warn!("Failed to draw element for close animation: {:?}", e);
+            }
+        }
+
+        let _sync_point = match frame.finish() {
+            Ok(s) => s,
+            Err(e) => {
+                warn!("Failed to finish frame for close animation: {:?}", e);
+                return None;
+            }
+        };
+
+        // Drop target and texture_mut to release the borrow
+        drop(target);
+        drop(texture_mut);
+
+        let buffer = TextureBuffer::from_texture(
+            renderer,
+            texture_clone,
+            scale,
+            transform,
+            Vec::new(),
+        );
+
+        // Position of the window content relative to the output, in logical coords.
+        // This is where the closing animation will render the snapshot.
+        let pos = encompassing_geo.loc.to_f64().to_logical(scale);
+
+        // Buffer offset is zero since the texture content starts at (0,0) in the
+        // offscreen texture, and we've already accounted for the element positions
+        // when rendering into the texture.
+        let buffer_offset = Point::from((0., 0.));
+
+        Some(crate::shell::ssd::PendingCloseSnapshot {
+            buffer,
+            geo_size,
+            pos,
+            buffer_offset,
+        })
+    }
+
+    /// Start close animation from a pre-captured snapshot.
+    ///
+    /// Called in `toplevel_destroyed` with the snapshot captured in the pre-commit hook.
+    pub(crate) fn start_close_animation_from_snapshot(
+        closing_windows: &mut Vec<crate::shell::closing_window::ClosingWindow>,
+        config: &crate::config::Config,
+        snapshot: crate::shell::ssd::PendingCloseSnapshot,
+    ) -> bool {
+        use crate::animation::Animation;
+        use crate::shell::closing_window::ClosingWindow;
+
+        let close_config = &config.animations.window_close;
+
+        // Create the close animation
+        let anim = Animation::ease(
+            0.0,  // from: progress 0 (visible)
+            1.0,  // to: progress 1 (gone)
+            close_config.duration_ms,
+            close_config.curve.to_curve(),
+        );
+
+        let end_scale = close_config.scale;
+        let closing = ClosingWindow::new(
+            snapshot.buffer,
+            snapshot.geo_size,
+            snapshot.pos,
+            snapshot.buffer_offset,
+            anim,
+            end_scale,
+        );
+        closing_windows.push(closing);
+
+        true
+    }
+
+    /// Remove closing windows whose animations have finished.
+    pub fn cleanup_finished_close_animations(&mut self) {
+        self.closing_windows.retain(|closing| closing.is_animating());
+    }
+
+
+
+    /// Request that a window be closed.
+    ///
+    /// This sends the Wayland close event to the client. When the client
+    /// destroys the toplevel, `toplevel_destroyed` will capture a snapshot
+    /// and start the close animation.
+    pub fn queue_close_animation(&mut self, window: &WindowElement) {
+        use smithay::desktop::WindowSurface;
+        match window.0.underlying_surface() {
+            WindowSurface::Wayland(w) => w.send_close(),
+            #[cfg(feature = "xwayland")]
+            WindowSurface::X11(w) => {
+                let _ = w.close();
+            }
+        }
     }
 
     #[cfg(feature = "xdp-gnome-screencast")]
@@ -1397,6 +1705,13 @@ pub trait Backend {
     fn update_led_state(&mut self, led_state: LedState);
     fn reload_cursor(&mut self, theme: Option<&str>, size: Option<u32>);
 
+    /// Queue a redraw for the given output.
+    fn queue_redraw(&mut self, output: &Output);
+
+    /// Access the primary GlesRenderer. Used for capturing window snapshots
+    /// in callbacks like toplevel_destroyed where no renderer is otherwise available.
+    fn with_primary_renderer<T>(&mut self, f: impl FnOnce(&mut GlesRenderer) -> T) -> Option<T>;
+
     /// Capture a screenshot of the given output.  Backends with a renderer
     /// (udev, winit, x11) override this; the default returns `None`.
     #[allow(unused_variables)]
@@ -1613,19 +1928,14 @@ impl<BackendData: Backend + 'static> AnvilState<BackendData> {
     }
 
     fn ipc_close_window(&mut self, id: u64) -> Result<(), String> {
-        use smithay::desktop::WindowSurface;
         let window = self
             .ipc_find_window(id)
             .ok_or_else(|| format!("window {id} not found"))?;
-        match window.0.underlying_surface() {
-            WindowSurface::Wayland(w) => w.send_close(),
-            #[cfg(feature = "xwayland")]
-            WindowSurface::X11(w) => {
-                let _ = w.close();
-            }
-            #[cfg(not(feature = "xwayland"))]
-            _ => return Err("unsupported window type".to_owned()),
-        }
+
+        // Queue close animation (snapshot captured during next render).
+        // send_close() is deferred until after the snapshot is captured.
+        self.queue_close_animation(&window);
+
         Ok(())
     }
 

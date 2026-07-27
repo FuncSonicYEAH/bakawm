@@ -87,7 +87,9 @@ impl<BackendData: Backend> XwmHandler for AnvilState<BackendData> {
             .find(|e| matches!(e.0.x11_surface(), Some(w) if w == &window))
             .cloned();
         if let Some(elem) = maybe {
-            self.space.unmap_elem(&elem)
+            // Queue close animation (snapshot captured during next render).
+            // The actual unmap/close is deferred until after the snapshot is captured.
+            self.queue_close_animation(&elem);
         }
         if !window.is_override_redirect() {
             window.set_mapped(false).unwrap();

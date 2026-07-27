@@ -17,7 +17,7 @@ use smithay::{
     },
     utils::{Logical, Point, Rectangle, Serial},
     wayland::{
-        compositor::{self, with_states},
+        compositor::{self, with_states, SurfaceAttributes},
         seat::WaylandFocus,
         shell::xdg::{
             Configure, PopupSurface, PositionerState, ToplevelCachedState, ToplevelSurface, XdgShellHandler,
@@ -45,10 +45,28 @@ impl<BackendData: Backend> XdgShellHandler for AnvilState<BackendData> {
 
     fn new_toplevel(&mut self, surface: ToplevelSurface) {
         let window = WindowElement(Window::new_wayland_window(surface.clone()));
-        place_new_window(&mut self.space, self.pointer.current_location(), &window, true);
+        let needs_center = place_new_window(&mut self.space, self.pointer.current_location(), &window, true);
 
         // Apply window config (including window-rule overrides)
         window.apply_config(&self.config);
+
+        // Mark that window needs centering (hide until first commit positions it correctly)
+        if needs_center {
+            window.decoration_state().needs_center = true;
+        }
+
+        // Start open animation
+        if self.config.animations.enable && self.config.animations.window_open.enable {
+            use crate::animation::Animation;
+            let open_config = &self.config.animations.window_open;
+            let anim = Animation::ease(
+                0.0,  // from: progress 0 (invisible)
+                1.0,  // to: progress 1 (fully visible)
+                open_config.duration_ms,
+                open_config.curve.to_curve(),
+            );
+            window.decoration_state().open_animation = Some(anim);
+        }
 
         // Note: prefer_no_csd can't be checked per-rule here since app_id/title
         // are not yet available. The global config is used at creation time.
@@ -60,6 +78,65 @@ impl<BackendData: Backend> XdgShellHandler for AnvilState<BackendData> {
                 state.states.set(xdg_toplevel::State::TiledRight);
             });
         }
+
+        // Add pre-commit hook to detect surface unmap (null buffer commit).
+        // When a window commits a null buffer (BufferAssignment::Removed), we capture
+        // its contents as a texture snapshot *before* the buffer is removed, so the
+        // close animation will have valid content. The snapshot is stored in
+        // WindowState.pending_close_snapshot and used later in toplevel_destroyed.
+        compositor::add_pre_commit_hook::<Self, _>(surface.wl_surface(), |state, _dh, surface| {
+            use smithay::wayland::compositor::BufferAssignment;
+
+            // Check if this commit is removing the buffer (surface unmap)
+            let got_unmapped = compositor::with_states(surface, |states| {
+                let mut guard = states.cached_state.get::<SurfaceAttributes>();
+                matches!(guard.pending().buffer.as_ref(), Some(BufferAssignment::Removed))
+            });
+
+            if got_unmapped {
+                // Find the window in space
+                let Some(window) = state
+                    .space
+                    .elements()
+                    .find(|w| w.wl_surface().as_deref() == Some(surface))
+                    .cloned()
+                else {
+                    return;
+                };
+
+                // Only capture if we don't already have a snapshot (avoid overwriting)
+                if window.decoration_state().pending_close_snapshot.is_some() {
+                    return;
+                }
+
+                // Check if close animation is enabled
+                if !state.config.animations.enable || !state.config.animations.window_close.enable {
+                    return;
+                }
+
+                // Capture the snapshot using the primary renderer
+                let output = state.space.outputs_for_element(&window).first().cloned();
+                let config = state.config.clone();
+                let snapshot = state.backend_data.with_primary_renderer(|renderer| {
+                    crate::state::AnvilState::<BackendData>::capture_close_snapshot(
+                        &state.space,
+                        &config,
+                        &window,
+                        renderer,
+                        output.as_ref(),
+                    )
+                });
+
+                // with_primary_renderer returns Option<Option<PendingCloseSnapshot>>
+                // - outer None: no renderer available
+                // - inner None: capture failed
+                // - inner Some: snapshot captured successfully
+                if let Some(Some(snapshot)) = snapshot {
+                    tracing::debug!("pre-commit: captured close animation snapshot for unmap");
+                    window.decoration_state().pending_close_snapshot = Some(snapshot);
+                }
+            }
+        });
 
         compositor::add_post_commit_hook(surface.wl_surface(), |state: &mut Self, _, surface| {
             handle_toplevel_commit(&mut state.space, surface);
@@ -458,6 +535,69 @@ impl<BackendData: Backend> XdgShellHandler for AnvilState<BackendData> {
             }
         }
     }
+
+    fn toplevel_destroyed(&mut self, toplevel: ToplevelSurface) {
+        let _wl_surface = toplevel.wl_surface().clone();
+        let window = match self.space.elements().find(|w| w.0.toplevel() == Some(&toplevel)) {
+            Some(w) => w.clone(),
+            None => {
+                trace!("toplevel_destroyed: window not found in space");
+                return;
+            }
+        };
+
+        // Find the output this window is on
+        let output = match self.space.outputs_for_element(&window).first().cloned() {
+            Some(o) => o,
+            None => {
+                trace!("toplevel_destroyed: no output for window");
+                return;
+            }
+        };
+
+        // Try to use the pre-captured snapshot (captured in pre-commit hook
+        // when BufferAssignment::Removed was detected, i.e. when the surface
+        // unmapped). This snapshot has the window's last valid content.
+        let snapshot = window.decoration_state().pending_close_snapshot.take();
+
+        let config = self.config.clone();
+        let started = if let Some(snapshot) = snapshot {
+            tracing::info!("toplevel_destroyed: using pre-captured snapshot for close animation");
+            AnvilState::<BackendData>::start_close_animation_from_snapshot(
+                &mut self.closing_windows,
+                &config,
+                snapshot,
+            )
+        } else {
+            // No pre-captured snapshot available. Try to capture one now as a fallback.
+            // This may produce an empty snapshot if the surface buffer is already gone,
+            // but it's worth trying for cases where the client doesn't unmap before destroying.
+            tracing::debug!("toplevel_destroyed: no pre-captured snapshot, trying fallback capture");
+            self.backend_data.with_primary_renderer(|renderer| {
+                AnvilState::<BackendData>::start_close_animation_inner(
+                    &mut self.closing_windows,
+                    &self.space,
+                    &config,
+                    &window,
+                    renderer,
+                    &output,
+                )
+            }).unwrap_or(false)
+        };
+
+        if started {
+            tracing::info!("toplevel_destroyed: close animation started");
+            // Remove the window from the space — the ClosingWindow
+            // will handle rendering from now on.
+            self.space.unmap_elem(&window);
+            // Queue redraw to show the animation
+            self.backend_data.queue_redraw(&output);
+        } else {
+            tracing::debug!("toplevel_destroyed: close animation not started (disabled or failed)");
+            // Animation not started — just remove the window
+            self.space.unmap_elem(&window);
+        }
+    }
 }
 
 impl<BackendData: Backend> AnvilState<BackendData> {
@@ -664,6 +804,16 @@ fn handle_toplevel_commit(space: &mut Space<WindowElement>, surface: &WlSurface)
             let x = output_geometry.loc.x + (output_geometry.size.w - geometry.size.w) / 2 - geometry.loc.x;
             let y = output_geometry.loc.y + (output_geometry.size.h - geometry.size.h) / 2 - geometry.loc.y;
             space.relocate_element(&window, (x, y));
+
+            // Window is now properly centered — safe to render
+            let mut deco = window.decoration_state();
+            deco.needs_center = false;
+            // Restart open animation so it plays from the beginning
+            // (it was running in the background while the window was hidden)
+            if let Some(ref anim) = deco.open_animation {
+                deco.open_animation = Some(anim.restarted(0.0, 1.0, 0.0));
+            }
+
             return Some(());
         }
     }

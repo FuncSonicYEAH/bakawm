@@ -20,6 +20,7 @@ pub struct Config {
     pub cursor: CursorConfig,
     pub window: WindowConfig,
     pub blur: BlurConfig,
+    pub animations: AnimationsConfig,
     pub window_rules: Vec<WindowRule>,
     pub layer_rules: Vec<LayerRule>,
     pub init_commands: Vec<String>,
@@ -280,6 +281,77 @@ pub struct LayerRule {
     pub blur: Option<BlurOverride>,
 }
 
+/// Animation configuration.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct AnimationsConfig {
+    /// Globally enable all animations.
+    pub enable: bool,
+    /// Window open animation config.
+    pub window_open: WindowAnimConfig,
+    /// Window close animation config.
+    pub window_close: WindowAnimConfig,
+}
+
+/// Per-animation config for window open/close.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct WindowAnimConfig {
+    /// Enable this specific animation.
+    pub enable: bool,
+    /// Duration in milliseconds.
+    pub duration_ms: u32,
+    /// Easing curve.
+    pub curve: AnimCurve,
+    /// Scale factor at the start of the animation.
+    /// For open: the window starts at this scale and animates to 1.0 (e.g. 0.8 = start at 80%).
+    /// For close: the window starts at 1.0 and animates to this scale (e.g. 0.0 = shrink to nothing).
+    pub scale: f64,
+}
+
+/// Easing curve type for animations.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum AnimCurve {
+    Linear,
+    EaseOutQuad,
+    EaseOutCubic,
+    EaseOutExpo,
+    CubicBezier(f64, f64, f64, f64),
+}
+
+impl Default for AnimationsConfig {
+    fn default() -> Self {
+        AnimationsConfig {
+            enable: true,
+            window_open: WindowAnimConfig {
+                enable: true,
+                duration_ms: 250,
+                curve: AnimCurve::EaseOutCubic,
+                scale: 0.8,
+            },
+            window_close: WindowAnimConfig {
+                enable: true,
+                duration_ms: 250,
+                curve: AnimCurve::EaseOutCubic,
+                scale: 0.0,
+            },
+        }
+    }
+}
+
+impl AnimCurve {
+    /// Convert to the animation module's Curve type.
+    pub fn to_curve(self) -> crate::animation::Curve {
+        match self {
+            AnimCurve::Linear => crate::animation::Curve::Linear,
+            AnimCurve::EaseOutQuad => crate::animation::Curve::EaseOutQuad,
+            AnimCurve::EaseOutCubic => crate::animation::Curve::EaseOutCubic,
+            AnimCurve::EaseOutExpo => crate::animation::Curve::EaseOutExpo,
+            AnimCurve::CubicBezier(x1, y1, x2, y2) => {
+                crate::animation::Curve::CubicBezier { x1, y1, x2, y2 }
+            }
+        }
+    }
+}
+
 impl Default for WindowConfig {
     fn default() -> Self {
         WindowConfig {
@@ -379,6 +451,7 @@ impl Default for Config {
             },
             window: WindowConfig::default(),
             blur: BlurConfig::default(),
+            animations: AnimationsConfig::default(),
             window_rules: Vec::new(),
             layer_rules: Vec::new(),
             init_commands: Vec::new(),
@@ -422,13 +495,32 @@ pub fn load_config() -> Config {
         info!("No config file found at {:?}, creating default config", path);
         if let Err(e) = create_default_config() {
             warn!("Failed to create default config: {}", e);
+            return Config::default();
         }
-        return Config::default();
+        // Now parse the newly created config file instead of using hardcoded defaults
+        return match parse_lua_config(&path) {
+            Ok(config) => {
+                info!("Loaded config from {:?}", path);
+                config
+            }
+            Err(e) => {
+                warn!("Failed to parse newly created config: {}, using defaults", e);
+                Config::default()
+            }
+        };
     }
 
     match parse_lua_config(&path) {
         Ok(config) => {
-            info!("Loaded config from {:?}", path);
+            info!(
+                "Loaded config from {:?} (animations: enable={}, open={}ms/{:?}, close={}ms/{:?})",
+                path,
+                config.animations.enable,
+                config.animations.window_open.duration_ms,
+                config.animations.window_open.curve,
+                config.animations.window_close.duration_ms,
+                config.animations.window_close.curve,
+            );
             config
         }
         Err(e) => {
@@ -448,7 +540,15 @@ pub fn reload_config(current: &Config) -> Config {
 
     match parse_lua_config(&path) {
         Ok(new_config) => {
-            info!("Reloaded config from {:?}", path);
+            info!(
+                "Reloaded config from {:?} (animations: enable={}, open={}ms/{:?}, close={}ms/{:?})",
+                path,
+                new_config.animations.enable,
+                new_config.animations.window_open.duration_ms,
+                new_config.animations.window_open.curve,
+                new_config.animations.window_close.duration_ms,
+                new_config.animations.window_close.curve,
+            );
             new_config
         }
         Err(e) => {
@@ -591,6 +691,10 @@ fn parse_lua_config(path: &PathBuf) -> LuaResult<Config> {
 
     if let Value::Table(blur) = result.get::<Value>("blur")? {
         config.blur = parse_blur(&blur)?;
+    }
+
+    if let Value::Table(animations) = result.get::<Value>("animations")? {
+        config.animations = parse_animations(&animations)?;
     }
 
     if let Value::Table(window_rules) = result.get::<Value>("window_rules")? {
@@ -799,6 +903,85 @@ fn parse_blur_override(table: &Table) -> LuaResult<BlurOverride> {
         offset,
         xray,
     })
+}
+
+fn parse_animations(table: &Table) -> LuaResult<AnimationsConfig> {
+    let mut animations = AnimationsConfig::default();
+
+    if let Ok(enable) = table.get::<bool>("enable") {
+        animations.enable = enable;
+    }
+
+    if let Value::Table(open_table) = table.get::<Value>("window_open")? {
+        animations.window_open = parse_window_anim(&open_table)?;
+    }
+
+    if let Value::Table(close_table) = table.get::<Value>("window_close")? {
+        animations.window_close = parse_window_anim(&close_table)?;
+    }
+
+    Ok(animations)
+}
+
+fn parse_window_anim(table: &Table) -> LuaResult<WindowAnimConfig> {
+    let mut anim = WindowAnimConfig {
+        enable: true,
+        duration_ms: 150,
+        curve: AnimCurve::EaseOutCubic,
+        scale: 0.8,
+    };
+
+    if let Ok(enable) = table.get::<bool>("enable") {
+        anim.enable = enable;
+    }
+    if let Ok(duration_ms) = table.get::<u32>("duration_ms") {
+        anim.duration_ms = duration_ms;
+    }
+    if let Ok(curve) = parse_anim_curve(table) {
+        anim.curve = curve;
+    }
+    if let Ok(scale) = table.get::<f64>("scale") {
+        anim.scale = scale.clamp(0.0, 1.0);
+    }
+
+    Ok(anim)
+}
+
+fn parse_anim_curve(table: &Table) -> LuaResult<AnimCurve> {
+    let curve_value: Value = table.get("curve")?;
+
+    match curve_value {
+        Value::String(s) => {
+            let curve_str = s.to_str()?.to_string();
+            match curve_str.as_str() {
+                "linear" => Ok(AnimCurve::Linear),
+                "ease-out-quad" => Ok(AnimCurve::EaseOutQuad),
+                "ease-out-cubic" => Ok(AnimCurve::EaseOutCubic),
+                "ease-out-expo" => Ok(AnimCurve::EaseOutExpo),
+                other => Err(mlua::Error::external(format!(
+                    "Unknown animation curve: {}",
+                    other
+                ))),
+            }
+        }
+        Value::Table(t) => {
+            let kind: String = t.get(1)?;
+            match kind.as_str() {
+                "cubic-bezier" => {
+                    let x1: f64 = t.get(2)?;
+                    let y1: f64 = t.get(3)?;
+                    let x2: f64 = t.get(4)?;
+                    let y2: f64 = t.get(5)?;
+                    Ok(AnimCurve::CubicBezier(x1, y1, x2, y2))
+                }
+                other => Err(mlua::Error::external(format!(
+                    "Unknown parametric curve: {}",
+                    other
+                ))),
+            }
+        }
+        _ => Err(mlua::Error::external("curve must be a string or table")),
+    }
 }
 
 fn parse_window_rules(table: &Table) -> LuaResult<Vec<WindowRule>> {
@@ -1080,5 +1263,67 @@ return {
 
         assert_eq!(config.init_commands, vec!["alacritty"]);
         assert_eq!(config.init_shell_commands, vec!["notify-send 'Welcome!'"]);
+    }
+
+    #[test]
+    fn test_parse_animations_config() {
+        let lua_code = r#"
+return {
+    binds = {
+        { modifiers = { "Super" }, key = "q", action = { kind = "Quit" } },
+    },
+    animations = {
+        enable = true,
+        window_open = {
+            enable = true,
+            duration_ms = 200,
+            curve = "ease-out-expo",
+        },
+        window_close = {
+            enable = false,
+            duration_ms = 300,
+            curve = "linear",
+        },
+    },
+}
+"#;
+        let dir = tempfile::tempdir().unwrap();
+        let config_path = dir.path().join("config.lua");
+        let mut file = fs::File::create(&config_path).unwrap();
+        file.write_all(lua_code.as_bytes()).unwrap();
+
+        let config = parse_lua_config(&config_path).unwrap();
+
+        assert!(config.animations.enable);
+        assert!(config.animations.window_open.enable);
+        assert_eq!(config.animations.window_open.duration_ms, 200);
+        assert_eq!(config.animations.window_open.curve, AnimCurve::EaseOutExpo);
+        assert!(!config.animations.window_close.enable);
+        assert_eq!(config.animations.window_close.duration_ms, 300);
+        assert_eq!(config.animations.window_close.curve, AnimCurve::Linear);
+    }
+
+    #[test]
+    fn test_parse_cubic_bezier_curve() {
+        let lua_code = r#"
+return {
+    binds = {
+        { modifiers = { "Super" }, key = "q", action = { kind = "Quit" } },
+    },
+    animations = {
+        window_open = {
+            curve = { "cubic-bezier", 0.25, 0.1, 0.25, 1.0 },
+        },
+    },
+}
+"#;
+        let dir = tempfile::tempdir().unwrap();
+        let config_path = dir.path().join("config.lua");
+        let mut file = fs::File::create(&config_path).unwrap();
+        file.write_all(lua_code.as_bytes()).unwrap();
+
+        let config = parse_lua_config(&config_path).unwrap();
+
+        assert_eq!(config.animations.window_open.curve, AnimCurve::CubicBezier(0.25, 0.1, 0.25, 1.0));
     }
 }
