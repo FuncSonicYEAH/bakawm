@@ -203,6 +203,9 @@ pub struct AnvilState<BackendData: Backend + 'static> {
 
     pub config: crate::config::Config,
 
+    /// Lua runtime state with callback functions for `BindAction::Callback`.
+    pub lua_config: Option<Box<crate::config::LuaConfig>>,
+
     /// Windows currently playing their close animation.
     pub closing_windows: Vec<crate::shell::closing_window::ClosingWindow>,
 
@@ -701,7 +704,8 @@ impl<BackendData: Backend + 'static> AnvilState<BackendData> {
 
         let clock = Clock::new();
 
-        let config = crate::config::load_config();
+        let mut config = crate::config::load_config();
+        let lua_config = config.lua_config.take();
         for (k, v) in &config.env {
             unsafe { std::env::set_var(k, v); }
         }
@@ -857,6 +861,7 @@ impl<BackendData: Backend + 'static> AnvilState<BackendData> {
             renderdoc: renderdoc::RenderDoc::new().ok(),
             show_window_preview: false,
             config,
+            lua_config,
             closing_windows: Vec::new(),
             #[cfg(feature = "xdp-gnome-screencast")]
             screencasting: crate::screencasting::Screencasting::new_stub(),
@@ -974,6 +979,9 @@ impl<BackendData: Backend + 'static> AnvilState<BackendData> {
     pub fn reload_config(&mut self) {
         let old_config = self.config.clone();
         self.config = crate::config::reload_config(&old_config);
+
+        // Preserve the LuaConfig from the new config into AnvilState
+        self.lua_config = self.config.lua_config.take();
 
         if self.config.cursor.theme != old_config.cursor.theme
             || self.config.cursor.size != old_config.cursor.size

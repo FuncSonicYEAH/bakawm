@@ -4,10 +4,11 @@ use smithay::{
     desktop::{WindowSurface, space::SpaceElement},
     input::{
         pointer::{
-            AxisFrame, ButtonEvent, GestureHoldBeginEvent, GestureHoldEndEvent, GesturePinchBeginEvent,
-            GesturePinchEndEvent, GesturePinchUpdateEvent, GestureSwipeBeginEvent, GestureSwipeEndEvent,
-            GestureSwipeUpdateEvent, GrabStartData as PointerGrabStartData, MotionEvent, PointerGrab,
-            PointerInnerHandle, RelativeMotionEvent,
+            AxisFrame, ButtonEvent, CursorIcon, GestureHoldBeginEvent, GestureHoldEndEvent,
+            GesturePinchBeginEvent, GesturePinchEndEvent, GesturePinchUpdateEvent,
+            GestureSwipeBeginEvent, GestureSwipeEndEvent, GestureSwipeUpdateEvent,
+            GrabStartData as PointerGrabStartData, MotionEvent, PointerGrab, PointerInnerHandle,
+            RelativeMotionEvent,
         },
         touch::{GrabStartData as TouchGrabStartData, TouchGrab},
     },
@@ -287,6 +288,22 @@ impl From<ResizeEdge> for xdg_toplevel::ResizeEdge {
     #[inline]
     fn from(x: ResizeEdge) -> Self {
         Self::try_from(x.bits()).unwrap()
+    }
+}
+
+impl ResizeEdge {
+    pub fn cursor_icon(self) -> CursorIcon {
+        match self {
+            Self::LEFT => CursorIcon::WResize,
+            Self::RIGHT => CursorIcon::EResize,
+            Self::TOP => CursorIcon::NResize,
+            Self::BOTTOM => CursorIcon::SResize,
+            Self::TOP_LEFT => CursorIcon::NwResize,
+            Self::TOP_RIGHT => CursorIcon::NeResize,
+            Self::BOTTOM_RIGHT => CursorIcon::SeResize,
+            Self::BOTTOM_LEFT => CursorIcon::SwResize,
+            _ => CursorIcon::Default,
+        }
     }
 }
 

@@ -38,7 +38,7 @@ use smithay::backend::input::AbsolutePositionEvent;
 
 #[cfg(any(feature = "winit", feature = "x11"))]
 use smithay::output::Output;
-use tracing::{debug, error, info};
+use tracing::{debug, error, info, warn};
 
 use crate::state::Backend;
 #[cfg(feature = "udev")]
@@ -143,6 +143,16 @@ impl<BackendData: Backend> AnvilState<BackendData> {
             KeyAction::Screenshot => {
                 info!("Screenshot requested");
                 self.pending_screenshot = true;
+            }
+
+            KeyAction::Callback(idx) => {
+                if let Some(ref lua_config) = self.lua_config {
+                    if let Err(e) = lua_config.invoke_callback(idx) {
+                        warn!("Lua callback {} failed: {}", idx, e);
+                    }
+                } else {
+                    warn!("Lua callback {} triggered but no LuaConfig available", idx);
+                }
             }
 
             _ => unreachable!(
@@ -260,27 +270,13 @@ impl<BackendData: Backend> AnvilState<BackendData> {
                     if let Some((window, window_loc)) = self.space.element_under(location).map(|(w, p)| (w.clone(), p)) {
                         let geometry = window.geometry();
                         let window_size = geometry.size;
-                        let corner_size = 20;
 
                         let rel_x = location.x - window_loc.x as f64;
                         let rel_y = location.y - window_loc.y as f64;
 
-                        let at_top_left = rel_x < corner_size as f64 && rel_y < corner_size as f64;
-                        let at_top_right = rel_x > (window_size.w - corner_size) as f64 && rel_y < corner_size as f64;
-                        let at_bottom_left = rel_x < corner_size as f64 && rel_y > (window_size.h - corner_size) as f64;
-                        let at_bottom_right = rel_x > (window_size.w - corner_size) as f64 && rel_y > (window_size.h - corner_size) as f64;
+                        let edges = detect_resize_edges(rel_x, rel_y, window_size.w, window_size.h);
 
-                        if at_top_left || at_top_right || at_bottom_left || at_bottom_right {
-                            let edges = if at_top_left {
-                                ResizeEdge::TOP_LEFT
-                            } else if at_top_right {
-                                ResizeEdge::TOP_RIGHT
-                            } else if at_bottom_left {
-                                ResizeEdge::BOTTOM_LEFT
-                            } else {
-                                ResizeEdge::BOTTOM_RIGHT
-                            };
-
+                        if !edges.is_empty() {
                             let initial_window_location = window_loc;
                             let initial_window_size = window_size;
 
@@ -304,7 +300,6 @@ impl<BackendData: Backend> AnvilState<BackendData> {
                                 focus: None,
                                 button: 0x110,
                                 location,
-                                //serial,
                             };
 
                             let grab = PointerResizeSurfaceGrab {
@@ -328,7 +323,6 @@ impl<BackendData: Backend> AnvilState<BackendData> {
                                 focus: None,
                                 button: 0x110,
                                 location,
-                                //serial,
                             };
 
                             let grab = PointerMoveSurfaceGrab {
@@ -703,25 +697,42 @@ impl<BackendData: Backend> AnvilState<BackendData> {
         if let Some((window, window_loc)) = self.space.element_under(location).map(|(w, p)| (w.clone(), p)) {
             let geometry = window.geometry();
             let window_size = geometry.size;
-            let corner_size = 20;
 
             let rel_x = location.x - window_loc.x as f64;
             let rel_y = location.y - window_loc.y as f64;
 
-            let at_top_left = rel_x < corner_size as f64 && rel_y < corner_size as f64;
-            let at_top_right = rel_x > (window_size.w - corner_size) as f64 && rel_y < corner_size as f64;
-            let at_bottom_left = rel_x < corner_size as f64 && rel_y > (window_size.h - corner_size) as f64;
-            let at_bottom_right = rel_x > (window_size.w - corner_size) as f64 && rel_y > (window_size.h - corner_size) as f64;
+            let edges = detect_resize_edges(rel_x, rel_y, window_size.w, window_size.h);
 
-            if at_top_left || at_bottom_right {
-                self.cursor_status = CursorImageStatus::Named(CursorIcon::NwseResize);
-                return;
-            } else if at_top_right || at_bottom_left {
-                self.cursor_status = CursorImageStatus::Named(CursorIcon::NeswResize);
-                return;
+            if !edges.is_empty() {
+                self.cursor_status = CursorImageStatus::Named(edges.cursor_icon());
+            } else {
+                // Center zone: show move cursor when modifier is held
+                self.cursor_status = CursorImageStatus::Named(CursorIcon::AllScroll);
             }
         }
     }
+}
+
+/// Detect which resize edges are at the given position within a window,
+/// using niri's 1/3 zone approach.
+fn detect_resize_edges(rel_x: f64, rel_y: f64, window_width: i32, window_height: i32) -> ResizeEdge {
+    let mut edges = ResizeEdge::empty();
+    let w = window_width as f64;
+    let h = window_height as f64;
+
+    if rel_x < w / 3.0 {
+        edges |= ResizeEdge::LEFT;
+    } else if rel_x > 2.0 * w / 3.0 {
+        edges |= ResizeEdge::RIGHT;
+    }
+
+    if rel_y < h / 3.0 {
+        edges |= ResizeEdge::TOP;
+    } else if rel_y > 2.0 * h / 3.0 {
+        edges |= ResizeEdge::BOTTOM;
+    }
+
+    edges
 }
 
 #[cfg(any(feature = "winit", feature = "x11"))]
@@ -1485,6 +1496,8 @@ enum KeyAction {
     ToggleDecorations,
     /// Take a screenshot
     Screenshot,
+    /// Call a custom Lua callback by index
+    Callback(usize),
     /// Do nothing more
     None,
 }
@@ -1605,6 +1618,7 @@ fn process_keyboard_shortcut(
                 crate::config::BindAction::ToggleTint => KeyAction::ToggleTint,
                 crate::config::BindAction::VtSwitch(n) => KeyAction::VtSwitch(*n),
                 crate::config::BindAction::Screen(n) => KeyAction::Screen(*n),
+                crate::config::BindAction::Callback(idx) => KeyAction::Callback(*idx),
             });
         }
     }

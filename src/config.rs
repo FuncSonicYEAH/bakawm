@@ -4,7 +4,7 @@ use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
-use mlua::{Lua, Result as LuaResult, Table, Value};
+use mlua::{Lua, Result as LuaResult, Table, Value, Function};
 use notify::{RecommendedWatcher, RecursiveMode, Watcher, Event, EventKind};
 use smithay::reexports::calloop::{channel, timer::{Timer, TimeoutAction}};
 use tracing::{info, warn};
@@ -12,7 +12,7 @@ use tracing::{info, warn};
 const CONFIG_DIR_NAME: &str = "bakawm";
 const CONFIG_FILE_NAME: &str = "config.lua";
 
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub struct Config {
     pub outputs: Vec<OutputConfig>,
     pub binds: Vec<BindConfig>,
@@ -25,6 +25,29 @@ pub struct Config {
     pub layer_rules: Vec<LayerRule>,
     pub init_commands: Vec<String>,
     pub init_shell_commands: Vec<String>,
+    /// Lua runtime state with callback functions for `BindAction::Callback`.
+    /// Not cloned on config reload — the new config brings its own `LuaConfig`.
+    pub lua_config: Option<Box<LuaConfig>>,
+}
+
+impl Clone for Config {
+    fn clone(&self) -> Self {
+        Config {
+            outputs: self.outputs.clone(),
+            binds: self.binds.clone(),
+            env: self.env.clone(),
+            cursor: self.cursor.clone(),
+            window: self.window.clone(),
+            blur: self.blur.clone(),
+            animations: self.animations.clone(),
+            window_rules: self.window_rules.clone(),
+            layer_rules: self.layer_rules.clone(),
+            init_commands: self.init_commands.clone(),
+            init_shell_commands: self.init_shell_commands.clone(),
+            // LuaConfig is not cloned — callbacks are not needed across clones
+            lua_config: None,
+        }
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -64,6 +87,40 @@ pub enum BindAction {
     ToggleTint,
     VtSwitch(i32),
     Screen(usize),
+    /// Index into `LuaConfig::callbacks` for a custom Lua function.
+    Callback(usize),
+}
+
+/// Holds the Lua state and callback functions for the configuration.
+/// Stored in `AnvilState` so that `BindAction::Callback` can invoke Lua functions at runtime.
+pub struct LuaConfig {
+    /// The Lua VM — kept alive so that `Function` handles in `callbacks` remain valid.
+    #[allow(dead_code)]
+    lua: Lua,
+    callbacks: Vec<Function>,
+}
+
+impl std::fmt::Debug for LuaConfig {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("LuaConfig")
+            .field("callbacks_count", &self.callbacks.len())
+            .finish()
+    }
+}
+
+impl LuaConfig {
+    /// Invoke a callback by its index. Returns an error if the index is out of bounds
+    /// or the Lua call fails.
+    pub fn invoke_callback(&self, idx: usize) -> LuaResult<()> {
+        match self.callbacks.get(idx) {
+            Some(func) => func.call::<()>(()),
+            None => Err(mlua::Error::external(format!(
+                "Callback index {} out of bounds (max {})",
+                idx,
+                self.callbacks.len()
+            ))),
+        }
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -456,6 +513,7 @@ impl Default for Config {
             layer_rules: Vec::new(),
             init_commands: Vec::new(),
             init_shell_commands: Vec::new(),
+            lua_config: None,
         }
     }
 }
@@ -639,80 +697,464 @@ fn create_default_config() -> Result<(), Box<dyn std::error::Error>> {
 fn parse_lua_config(path: &PathBuf) -> LuaResult<Config> {
     let lua = Lua::new();
 
+    // ── Collected state ──────────────────────────────────────────
+    let collected_outputs: Arc<Mutex<Vec<OutputConfig>>> = Arc::new(Mutex::new(Vec::new()));
+    let collected_binds: Arc<Mutex<Vec<BindConfig>>> = Arc::new(Mutex::new(Vec::new()));
+    let collected_env: Arc<Mutex<HashMap<String, String>>> = Arc::new(Mutex::new(HashMap::new()));
+    let collected_cursor: Arc<Mutex<Option<CursorConfig>>> = Arc::new(Mutex::new(None));
+    let collected_window: Arc<Mutex<Option<WindowConfig>>> = Arc::new(Mutex::new(None));
+    let collected_blur: Arc<Mutex<Option<BlurConfig>>> = Arc::new(Mutex::new(None));
+    let collected_animations: Arc<Mutex<Option<AnimationsConfig>>> = Arc::new(Mutex::new(None));
+    let collected_window_rules: Arc<Mutex<Vec<WindowRule>>> = Arc::new(Mutex::new(Vec::new()));
+    let collected_layer_rules: Arc<Mutex<Vec<LayerRule>>> = Arc::new(Mutex::new(Vec::new()));
     let spawn_commands: Arc<Mutex<Vec<String>>> = Arc::new(Mutex::new(Vec::new()));
     let shell_commands: Arc<Mutex<Vec<String>>> = Arc::new(Mutex::new(Vec::new()));
+    let callbacks: Arc<Mutex<Vec<Function>>> = Arc::new(Mutex::new(Vec::new()));
 
-    let spawn_fn = lua.create_function({
+    // ── bk table: imperative API ─────────────────────────────────
+
+    // bk.bind(modifiers, key, action)
+    let bind_fn = {
+        let collected_binds = collected_binds.clone();
+        let callbacks = callbacks.clone();
+        lua.create_function(move |lua, (modifiers, key, action): (Value, String, Value)| {
+            let mods = parse_modifiers_value(lua, modifiers)?;
+            let bind_action = parse_action_value(lua, &callbacks, action)?;
+            collected_binds.lock().unwrap().push(BindConfig {
+                modifiers: mods,
+                key,
+                action: bind_action,
+            });
+            Ok(())
+        })?
+    };
+
+    // bk.output(config_table)
+    let output_fn = {
+        let collected_outputs = collected_outputs.clone();
+        lua.create_function(move |_, t: Table| {
+            collected_outputs.lock().unwrap().push(parse_single_output(&t)?);
+            Ok(())
+        })?
+    };
+
+    // bk.env(key, value)
+    let env_fn = {
+        let collected_env = collected_env.clone();
+        lua.create_function(move |_, (k, v): (String, String)| {
+            collected_env.lock().unwrap().insert(k, v);
+            Ok(())
+        })?
+    };
+
+    // bk.window(config_table)
+    let window_fn = {
+        let collected_window = collected_window.clone();
+        lua.create_function(move |_, t: Table| {
+            let w = parse_window(&t)?;
+            *collected_window.lock().unwrap() = Some(w);
+            Ok(())
+        })?
+    };
+
+    // bk.animations(config_table)
+    let animations_fn = {
+        let collected_animations = collected_animations.clone();
+        lua.create_function(move |_, t: Table| {
+            let a = parse_animations(&t)?;
+            *collected_animations.lock().unwrap() = Some(a);
+            Ok(())
+        })?
+    };
+
+    // bk.blur(config_table)
+    let blur_fn = {
+        let collected_blur = collected_blur.clone();
+        lua.create_function(move |_, t: Table| {
+            let b = parse_blur(&t)?;
+            *collected_blur.lock().unwrap() = Some(b);
+            Ok(())
+        })?
+    };
+
+    // bk.cursor(config_table)
+    let cursor_fn = {
+        let collected_cursor = collected_cursor.clone();
+        lua.create_function(move |_, t: Table| {
+            let c = parse_cursor(&t)?;
+            *collected_cursor.lock().unwrap() = Some(c);
+            Ok(())
+        })?
+    };
+
+    // bk.window_rule(rule_table)
+    let window_rule_fn = {
+        let collected_window_rules = collected_window_rules.clone();
+        lua.create_function(move |_, t: Table| {
+            collected_window_rules.lock().unwrap().push(parse_single_window_rule(&t)?);
+            Ok(())
+        })?
+    };
+
+    // bk.layer_rule(rule_table)
+    let layer_rule_fn = {
+        let collected_layer_rules = collected_layer_rules.clone();
+        lua.create_function(move |_, t: Table| {
+            collected_layer_rules.lock().unwrap().push(parse_single_layer_rule(&t)?);
+            Ok(())
+        })?
+    };
+
+    // bk.on_start(function)
+    let on_start_fn = lua.create_function(move |_, func: Function| {
+        // Call the init function immediately; it should use bk.spawn/bk.run_sh
+        // which already push to the shared spawn_commands/shell_commands vectors
+        func.call::<()>(())
+    })?;
+
+    // bk.spawn(cmd)
+    let spawn_fn = {
         let spawn_commands = spawn_commands.clone();
-        move |_, cmd: String| {
+        lua.create_function(move |_, cmd: String| {
             spawn_commands.lock().unwrap().push(cmd);
             Ok(())
-        }
-    })?;
+        })?
+    };
 
-    let run_sh_fn = lua.create_function({
+    // bk.run_sh(code)
+    let run_sh_fn = {
         let shell_commands = shell_commands.clone();
-        move |_, code: String| {
+        lua.create_function(move |_, code: String| {
             shell_commands.lock().unwrap().push(code);
             Ok(())
-        }
+        })?
+    };
+
+    // ── Action descriptor functions (return tables for bk.bind) ──
+
+    let make_action = |lua: &Lua, t: &str| -> LuaResult<Table> {
+        let table = lua.create_table()?;
+        table.set("type", t)?;
+        Ok(table)
+    };
+
+    let quit_fn = lua.create_function(move |lua, ()| make_action(&lua, "Quit"))?;
+    let close_window_fn = lua.create_function(move |lua, ()| make_action(&lua, "CloseWindow"))?;
+    let screenshot_fn = lua.create_function(move |lua, ()| make_action(&lua, "Screenshot"))?;
+    let toggle_decorations_fn = lua.create_function(move |lua, ()| make_action(&lua, "ToggleDecorations"))?;
+    let toggle_preview_fn = lua.create_function(move |lua, ()| make_action(&lua, "TogglePreview"))?;
+    let scale_up_fn = lua.create_function(move |lua, ()| make_action(&lua, "ScaleUp"))?;
+    let scale_down_fn = lua.create_function(move |lua, ()| make_action(&lua, "ScaleDown"))?;
+    let rotate_output_fn = lua.create_function(move |lua, ()| make_action(&lua, "RotateOutput"))?;
+    let toggle_tint_fn = lua.create_function(move |lua, ()| make_action(&lua, "ToggleTint"))?;
+
+    let exec_fn = lua.create_function(move |lua, args: mlua::Variadic<String>| {
+        let table = lua.create_table()?;
+        table.set("type", "Run")?;
+        table.set("command", args.join(" "))?;
+        Ok(table)
     })?;
 
-    let bakawm_table = lua.create_table()?;
-    bakawm_table.set("spawn", spawn_fn)?;
-    bakawm_table.set("run_sh", run_sh_fn)?;
-    lua.globals().set("bakawm", bakawm_table)?;
+    let vt_switch_fn = lua.create_function(move |lua, n: i32| {
+        let table = lua.create_table()?;
+        table.set("type", "VtSwitch")?;
+        table.set("n", n)?;
+        Ok(table)
+    })?;
 
+    let screen_fn = lua.create_function(move |lua, n: usize| {
+        let table = lua.create_table()?;
+        table.set("type", "Screen")?;
+        table.set("n", n)?;
+        Ok(table)
+    })?;
+
+    // ── Assemble bk global table ─────────────────────────────────
+    let bk = lua.create_table()?;
+    bk.set("bind", bind_fn)?;
+    bk.set("output", output_fn)?;
+    bk.set("env", env_fn)?;
+    bk.set("window", window_fn)?;
+    bk.set("animations", animations_fn)?;
+    bk.set("blur", blur_fn)?;
+    bk.set("cursor", cursor_fn)?;
+    bk.set("window_rule", window_rule_fn)?;
+    bk.set("layer_rule", layer_rule_fn)?;
+    bk.set("on_start", on_start_fn)?;
+    bk.set("spawn", spawn_fn)?;
+    bk.set("run_sh", run_sh_fn)?;
+    // Action functions
+    bk.set("quit", quit_fn)?;
+    bk.set("close_window", close_window_fn)?;
+    bk.set("exec", exec_fn)?;
+    bk.set("screenshot", screenshot_fn)?;
+    bk.set("toggle_decorations", toggle_decorations_fn)?;
+    bk.set("toggle_preview", toggle_preview_fn)?;
+    bk.set("scale_up", scale_up_fn)?;
+    bk.set("scale_down", scale_down_fn)?;
+    bk.set("rotate_output", rotate_output_fn)?;
+    bk.set("toggle_tint", toggle_tint_fn)?;
+    bk.set("vt_switch", vt_switch_fn)?;
+    bk.set("screen", screen_fn)?;
+
+    // Keep `bakawm` as an alias for backward compatibility (spawn/run_sh)
+    let bakawm = lua.create_table()?;
+    bakawm.set("spawn", bk.get::<Function>("spawn")?)?;
+    bakawm.set("run_sh", bk.get::<Function>("run_sh")?)?;
+
+    lua.globals().set("bk", bk)?;
+    lua.globals().set("bakawm", bakawm)?;
+
+    // ── Execute the script ───────────────────────────────────────
     let code = fs::read_to_string(path)?;
-    let result = lua.load(&code).eval::<Table>()?;
+    let exec_result = lua.load(&code).eval::<Value>();
 
+    // Build config from collected state
     let mut config = Config::default();
     config.binds.clear();
 
-    if let Value::Table(outputs) = result.get::<Value>("outputs")? {
-        config.outputs = parse_outputs(&outputs)?;
+    // Check if the script returned a table (old-style config)
+    match exec_result {
+        Ok(Value::Table(result)) => {
+            // Old-style return { ... } config — parse from the returned table
+            if let Value::Table(outputs) = result.get::<Value>("outputs")? {
+                config.outputs = parse_outputs(&outputs)?;
+            }
+            if let Value::Table(binds) = result.get::<Value>("binds")? {
+                config.binds = parse_binds(&binds)?;
+            }
+            if let Value::Table(env) = result.get::<Value>("env")? {
+                config.env = parse_env(&env)?;
+            }
+            if let Value::Table(cursor) = result.get::<Value>("cursor")? {
+                config.cursor = parse_cursor(&cursor)?;
+            }
+            if let Value::Table(window) = result.get::<Value>("window")? {
+                config.window = parse_window(&window)?;
+            }
+            if let Value::Table(blur) = result.get::<Value>("blur")? {
+                config.blur = parse_blur(&blur)?;
+            }
+            if let Value::Table(animations) = result.get::<Value>("animations")? {
+                config.animations = parse_animations(&animations)?;
+            }
+            if let Value::Table(window_rules) = result.get::<Value>("window_rules")? {
+                config.window_rules = parse_window_rules(&window_rules)?;
+            }
+            if let Value::Table(layer_rules) = result.get::<Value>("layer_rules")? {
+                config.layer_rules = parse_layer_rules(&layer_rules)?;
+            }
+            if let Value::Function(init_fn) = result.get::<Value>("init")? {
+                init_fn.call::<()>(())?;
+            }
+            // spawn/run_sh already collected via the registered functions
+        }
+        Ok(_) | Err(_) => {
+            // New-style imperative config (no return table) or error
+            // Use the collected state from bk.* calls
+        }
     }
 
-    if let Value::Table(binds) = result.get::<Value>("binds")? {
-        config.binds = parse_binds(&binds)?;
+    // Merge collected imperative state (always applies, even for old-style that also uses bk.*)
+    {
+        let collected = collected_outputs.lock().unwrap();
+        if !collected.is_empty() {
+            config.outputs = collected.clone();
+        }
     }
-
-    if let Value::Table(env) = result.get::<Value>("env")? {
-        config.env = parse_env(&env)?;
+    {
+        let collected = collected_binds.lock().unwrap();
+        if !collected.is_empty() {
+            config.binds = collected.clone();
+        }
     }
-
-    if let Value::Table(cursor) = result.get::<Value>("cursor")? {
-        config.cursor = parse_cursor(&cursor)?;
+    {
+        let collected = collected_env.lock().unwrap();
+        if !collected.is_empty() {
+            config.env = collected.clone();
+        }
     }
-
-    if let Value::Table(window) = result.get::<Value>("window")? {
-        config.window = parse_window(&window)?;
+    {
+        let collected = collected_cursor.lock().unwrap();
+        if let Some(c) = collected.as_ref() {
+            config.cursor = c.clone();
+        }
     }
-
-    if let Value::Table(blur) = result.get::<Value>("blur")? {
-        config.blur = parse_blur(&blur)?;
+    {
+        let collected = collected_window.lock().unwrap();
+        if let Some(w) = collected.as_ref() {
+            config.window = w.clone();
+        }
     }
-
-    if let Value::Table(animations) = result.get::<Value>("animations")? {
-        config.animations = parse_animations(&animations)?;
+    {
+        let collected = collected_blur.lock().unwrap();
+        if let Some(b) = collected.as_ref() {
+            config.blur = *b;
+        }
     }
-
-    if let Value::Table(window_rules) = result.get::<Value>("window_rules")? {
-        config.window_rules = parse_window_rules(&window_rules)?;
+    {
+        let collected = collected_animations.lock().unwrap();
+        if let Some(a) = collected.as_ref() {
+            config.animations = *a;
+        }
     }
-
-    if let Value::Table(layer_rules) = result.get::<Value>("layer_rules")? {
-        config.layer_rules = parse_layer_rules(&layer_rules)?;
+    {
+        let collected = collected_window_rules.lock().unwrap();
+        if !collected.is_empty() {
+            config.window_rules = collected.clone();
+        }
     }
-
-    if let Value::Function(init_fn) = result.get::<Value>("init")? {
-        init_fn.call::<()>(())?;
+    {
+        let collected = collected_layer_rules.lock().unwrap();
+        if !collected.is_empty() {
+            config.layer_rules = collected.clone();
+        }
     }
 
     config.init_commands = spawn_commands.lock().unwrap().clone();
     config.init_shell_commands = shell_commands.lock().unwrap().clone();
 
+    // Build the LuaConfig with callbacks
+    let lua_callbacks = callbacks.lock().unwrap().clone();
+    config.lua_config = Some(Box::new(LuaConfig {
+        lua,
+        callbacks: lua_callbacks,
+    }));
+
     Ok(config)
+}
+
+/// Parse the `modifiers` parameter of `bk.bind()`.
+/// Accepts either a table of strings or a single string.
+fn parse_modifiers_value(_lua: &Lua, value: Value) -> LuaResult<Vec<String>> {
+    match value {
+        Value::Table(t) => {
+            let mut mods = Vec::new();
+            for m in t.sequence_values::<String>() {
+                mods.push(m?);
+            }
+            Ok(mods)
+        }
+        Value::String(s) => Ok(vec![s.to_str()?.to_owned()]),
+        _ => Ok(Vec::new()),
+    }
+}
+
+/// Parse the `action` parameter of `bk.bind()`.
+/// Accepts either an action descriptor table (from bk.quit(), etc.) or a Lua function.
+fn parse_action_value(_lua: &Lua, callbacks: &Arc<Mutex<Vec<Function>>>, value: Value) -> LuaResult<BindAction> {
+    match value {
+        Value::Table(t) => {
+            // Action descriptor table from bk.quit(), bk.exec(cmd), etc.
+            let kind: String = t.get("type")?;
+            match kind.as_str() {
+                "Quit" => Ok(BindAction::Quit),
+                "CloseWindow" => Ok(BindAction::CloseWindow),
+                "Run" => {
+                    let command: String = t.get("command")?;
+                    Ok(BindAction::Run(command))
+                }
+                "Screenshot" => Ok(BindAction::Screenshot),
+                "ToggleDecorations" => Ok(BindAction::ToggleDecorations),
+                "TogglePreview" => Ok(BindAction::TogglePreview),
+                "ScaleUp" => Ok(BindAction::ScaleUp),
+                "ScaleDown" => Ok(BindAction::ScaleDown),
+                "RotateOutput" => Ok(BindAction::RotateOutput),
+                "ToggleTint" => Ok(BindAction::ToggleTint),
+                "VtSwitch" => {
+                    let n: i32 = t.get("n")?;
+                    Ok(BindAction::VtSwitch(n))
+                }
+                "Screen" => {
+                    let n: usize = t.get("n")?;
+                    Ok(BindAction::Screen(n))
+                }
+                other => Err(mlua::Error::external(format!(
+                    "Unknown bind action type: {}",
+                    other
+                ))),
+            }
+        }
+        Value::Function(func) => {
+            let idx = callbacks.lock().unwrap().len();
+            callbacks.lock().unwrap().push(func);
+            Ok(BindAction::Callback(idx))
+        }
+        other => Err(mlua::Error::external(format!(
+            "bind action must be a table or function, got {:?}",
+            other
+        ))),
+    }
+}
+
+/// Parse a single output config from a Lua table.
+fn parse_single_output(t: &Table) -> LuaResult<OutputConfig> {
+    let name: String = t.get("name")?;
+
+    let mode = if let Value::Table(mode_table) = t.get::<Value>("mode")? {
+        Some(ModeConfig {
+            width: mode_table.get("width")?,
+            height: mode_table.get("height")?,
+            refresh: mode_table.get("refresh").ok(),
+        })
+    } else {
+        None
+    };
+
+    let position = if let Value::Table(pos_table) = t.get::<Value>("position")? {
+        Some((pos_table.get("x")?, pos_table.get("y")?))
+    } else {
+        None
+    };
+
+    let scale: Option<f64> = t.get("scale").ok();
+    let transform: Option<String> = t.get("transform").ok();
+
+    Ok(OutputConfig {
+        name,
+        mode,
+        position,
+        scale,
+        transform,
+    })
+}
+
+/// Parse a single window rule from a Lua table.
+fn parse_single_window_rule(t: &Table) -> LuaResult<WindowRule> {
+    let app_id: Option<String> = t.get("app_id").ok();
+    let title: Option<String> = t.get("title").ok();
+
+    let window = if let Value::Table(window_table) = t.get::<Value>("window")? {
+        Some(parse_partial_window(&window_table)?)
+    } else {
+        None
+    };
+
+    let blur = if let Value::Table(blur_table) = t.get::<Value>("blur")? {
+        Some(parse_blur_override(&blur_table)?)
+    } else {
+        None
+    };
+
+    Ok(WindowRule {
+        app_id,
+        title,
+        window,
+        blur,
+    })
+}
+
+/// Parse a single layer rule from a Lua table.
+fn parse_single_layer_rule(t: &Table) -> LuaResult<LayerRule> {
+    let namespace: Option<String> = t.get("namespace").ok();
+
+    let blur = if let Value::Table(blur_table) = t.get::<Value>("blur")? {
+        Some(parse_blur_override(&blur_table)?)
+    } else {
+        None
+    };
+
+    Ok(LayerRule { namespace, blur })
 }
 
 fn parse_outputs(table: &Table) -> LuaResult<Vec<OutputConfig>> {
@@ -1325,5 +1767,274 @@ return {
         let config = parse_lua_config(&config_path).unwrap();
 
         assert_eq!(config.animations.window_open.curve, AnimCurve::CubicBezier(0.25, 0.1, 0.25, 1.0));
+    }
+
+    #[test]
+    fn test_imperative_bind_api() {
+        let lua_code = r#"
+local mod = "Super"
+
+bk.bind({ "Ctrl", "Alt" }, "BackSpace", bk.quit())
+bk.bind({ mod }, "q", bk.close_window())
+bk.bind({ mod }, "Return", bk.exec("alacritty"))
+bk.bind({ mod, "Shift" }, "s", bk.screenshot())
+bk.bind({ mod }, "1", bk.screen(0))
+"#;
+        let dir = tempfile::tempdir().unwrap();
+        let config_path = dir.path().join("config.lua");
+        let mut file = fs::File::create(&config_path).unwrap();
+        file.write_all(lua_code.as_bytes()).unwrap();
+
+        let config = parse_lua_config(&config_path).unwrap();
+
+        assert_eq!(config.binds.len(), 5);
+        assert_eq!(config.binds[0].modifiers, vec!["Ctrl", "Alt"]);
+        assert_eq!(config.binds[0].key, "BackSpace");
+        assert!(matches!(config.binds[0].action, BindAction::Quit));
+
+        assert_eq!(config.binds[1].modifiers, vec!["Super"]);
+        assert_eq!(config.binds[1].key, "q");
+        assert!(matches!(config.binds[1].action, BindAction::CloseWindow));
+
+        assert!(matches!(&config.binds[2].action, BindAction::Run(cmd) if cmd == "alacritty"));
+        assert!(matches!(config.binds[3].action, BindAction::Screenshot));
+        assert!(matches!(&config.binds[4].action, BindAction::Screen(n) if *n == 0));
+    }
+
+    #[test]
+    fn test_imperative_config_api() {
+        let lua_code = r#"
+bk.env("GTK_THEME", "Adwaita:dark")
+bk.env("XCURSOR_SIZE", "24")
+
+bk.cursor({ theme = "Adwaita", size = 32 })
+
+bk.window({
+    prefer_no_csd = true,
+    corner_radius = 10,
+})
+
+bk.blur({ enable = true, passes = 3 })
+
+bk.animations({
+    enable = true,
+    window_open = { duration_ms = 200, curve = "ease-out-expo" },
+    window_close = { enable = false },
+})
+
+bk.output({
+    name = "eDP-1",
+    mode = { width = 1920, height = 1080, refresh = 60 },
+    position = { x = 0, y = 0 },
+    scale = 1.5,
+})
+
+bk.bind({ "Super" }, "q", bk.quit())
+"#;
+        let dir = tempfile::tempdir().unwrap();
+        let config_path = dir.path().join("config.lua");
+        let mut file = fs::File::create(&config_path).unwrap();
+        file.write_all(lua_code.as_bytes()).unwrap();
+
+        let config = parse_lua_config(&config_path).unwrap();
+
+        assert_eq!(config.env.get("GTK_THEME").unwrap(), "Adwaita:dark");
+        assert_eq!(config.env.get("XCURSOR_SIZE").unwrap(), "24");
+
+        assert_eq!(config.cursor.theme, Some("Adwaita".to_string()));
+        assert_eq!(config.cursor.size, Some(32));
+
+        assert!(config.window.prefer_no_csd);
+        assert_eq!(config.window.corner_radius, CornerRadius::from(10.0));
+
+        assert!(config.blur.enable);
+        assert_eq!(config.blur.passes, 3);
+
+        assert!(config.animations.enable);
+        assert_eq!(config.animations.window_open.duration_ms, 200);
+        assert_eq!(config.animations.window_open.curve, AnimCurve::EaseOutExpo);
+        assert!(!config.animations.window_close.enable);
+
+        assert_eq!(config.outputs.len(), 1);
+        assert_eq!(config.outputs[0].name, "eDP-1");
+        assert_eq!(config.outputs[0].scale, Some(1.5));
+    }
+
+    #[test]
+    fn test_imperative_for_loop() {
+        let lua_code = r#"
+for i = 1, 3 do
+    bk.bind({ "Super" }, tostring(i), bk.screen(i - 1))
+end
+"#;
+        let dir = tempfile::tempdir().unwrap();
+        let config_path = dir.path().join("config.lua");
+        let mut file = fs::File::create(&config_path).unwrap();
+        file.write_all(lua_code.as_bytes()).unwrap();
+
+        let config = parse_lua_config(&config_path).unwrap();
+
+        assert_eq!(config.binds.len(), 3);
+        assert!(matches!(&config.binds[0].action, BindAction::Screen(n) if *n == 0));
+        assert!(matches!(&config.binds[1].action, BindAction::Screen(n) if *n == 1));
+        assert!(matches!(&config.binds[2].action, BindAction::Screen(n) if *n == 2));
+    }
+
+    #[test]
+    fn test_imperative_callback_bind() {
+        let lua_code = r#"
+bk.bind({ "Super" }, "x", function()
+    -- Custom Lua function as bind action
+    os.execute("notify-send 'Hello'")
+end)
+
+bk.bind({ "Super" }, "q", bk.quit())
+"#;
+        let dir = tempfile::tempdir().unwrap();
+        let config_path = dir.path().join("config.lua");
+        let mut file = fs::File::create(&config_path).unwrap();
+        file.write_all(lua_code.as_bytes()).unwrap();
+
+        let config = parse_lua_config(&config_path).unwrap();
+
+        assert_eq!(config.binds.len(), 2);
+        // First bind should be a Callback
+        assert!(matches!(config.binds[0].action, BindAction::Callback(0)));
+        // Second bind is a normal action
+        assert!(matches!(config.binds[1].action, BindAction::Quit));
+
+        // LuaConfig should have been created with one callback
+        assert!(config.lua_config.is_some());
+        let lua_config = config.lua_config.as_ref().unwrap();
+        assert_eq!(lua_config.callbacks.len(), 1);
+    }
+
+    #[test]
+    fn test_imperative_on_start() {
+        let lua_code = r#"
+bk.on_start(function()
+    bk.spawn("waybar")
+    bk.spawn("mako")
+    bk.run_sh("echo hello")
+end)
+
+bk.bind({ "Super" }, "q", bk.quit())
+"#;
+        let dir = tempfile::tempdir().unwrap();
+        let config_path = dir.path().join("config.lua");
+        let mut file = fs::File::create(&config_path).unwrap();
+        file.write_all(lua_code.as_bytes()).unwrap();
+
+        let config = parse_lua_config(&config_path).unwrap();
+
+        assert_eq!(config.init_commands, vec!["waybar", "mako"]);
+        assert_eq!(config.init_shell_commands, vec!["echo hello"]);
+    }
+
+    #[test]
+    fn test_imperative_window_and_layer_rules() {
+        let lua_code = r#"
+bk.window_rule({
+    app_id = "kitty",
+    window = { border = { width = 2 }, corner_radius = 10 },
+    blur = { enable = true, passes = 2, xray = true },
+})
+
+bk.window_rule({
+    title = "Visual Studio Code",
+    window = { corner_radius = 12 },
+})
+
+bk.layer_rule({
+    namespace = "waybar",
+    blur = { enable = true, passes = 2, xray = true },
+})
+
+bk.bind({ "Super" }, "q", bk.quit())
+"#;
+        let dir = tempfile::tempdir().unwrap();
+        let config_path = dir.path().join("config.lua");
+        let mut file = fs::File::create(&config_path).unwrap();
+        file.write_all(lua_code.as_bytes()).unwrap();
+
+        let config = parse_lua_config(&config_path).unwrap();
+
+        assert_eq!(config.window_rules.len(), 2);
+        assert_eq!(config.window_rules[0].app_id, Some("kitty".to_string()));
+        assert_eq!(config.window_rules[1].title, Some("Visual Studio Code".to_string()));
+
+        assert_eq!(config.layer_rules.len(), 1);
+        assert_eq!(config.layer_rules[0].namespace, Some("waybar".to_string()));
+    }
+
+    #[test]
+    fn test_imperative_spawn_and_run_sh_top_level() {
+        let lua_code = r#"
+bk.spawn("alacritty")
+bk.run_sh("notify-send 'Welcome!'")
+
+bk.bind({ "Super" }, "q", bk.quit())
+"#;
+        let dir = tempfile::tempdir().unwrap();
+        let config_path = dir.path().join("config.lua");
+        let mut file = fs::File::create(&config_path).unwrap();
+        file.write_all(lua_code.as_bytes()).unwrap();
+
+        let config = parse_lua_config(&config_path).unwrap();
+
+        assert_eq!(config.init_commands, vec!["alacritty"]);
+        assert_eq!(config.init_shell_commands, vec!["notify-send 'Welcome!'"]);
+    }
+
+    #[test]
+    fn test_backward_compat_return_table() {
+        // Old-style return { ... } config should still work
+        let lua_code = r#"
+return {
+    binds = {
+        { modifiers = { "Super" }, key = "q", action = { kind = "Quit" } },
+        { modifiers = { "Super" }, key = "Return", action = { kind = "Run", command = "alacritty" } },
+    },
+    env = {
+        GTK_THEME = "Adwaita:dark",
+    },
+    cursor = {
+        theme = "Adwaita",
+        size = 32,
+    },
+}
+"#;
+        let dir = tempfile::tempdir().unwrap();
+        let config_path = dir.path().join("config.lua");
+        let mut file = fs::File::create(&config_path).unwrap();
+        file.write_all(lua_code.as_bytes()).unwrap();
+
+        let config = parse_lua_config(&config_path).unwrap();
+
+        assert_eq!(config.binds.len(), 2);
+        assert!(matches!(config.binds[0].action, BindAction::Quit));
+        assert!(matches!(&config.binds[1].action, BindAction::Run(cmd) if cmd == "alacritty"));
+        assert_eq!(config.env.get("GTK_THEME").unwrap(), "Adwaita:dark");
+        assert_eq!(config.cursor.theme, Some("Adwaita".to_string()));
+        assert_eq!(config.cursor.size, Some(32));
+    }
+
+    #[test]
+    fn test_exec_variadic_args() {
+        let lua_code = r#"
+local term = "alacritty"
+bk.bind({ "Super" }, "Return", bk.exec(term, "-e", "bash"))
+bk.bind({ "Super" }, "q", bk.exec("kitty"))
+"#;
+        let dir = tempfile::tempdir().unwrap();
+        let config_path = dir.path().join("config.lua");
+        let mut file = fs::File::create(&config_path).unwrap();
+        file.write_all(lua_code.as_bytes()).unwrap();
+
+        let config = parse_lua_config(&config_path).unwrap();
+
+        assert_eq!(config.binds.len(), 2);
+        assert!(matches!(&config.binds[0].action, BindAction::Run(cmd) if cmd == "alacritty -e bash"));
+        assert!(matches!(&config.binds[1].action, BindAction::Run(cmd) if cmd == "kitty"));
     }
 }

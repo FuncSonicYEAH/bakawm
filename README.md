@@ -207,6 +207,8 @@ The config file is watched for changes and will be automatically reloaded.
 
 - [Smithay](https://github.com/Smithay/smithay) - The Wayland compositor framework that bakawm is built upon. Neat!
 - [niri](https://github.com/niri-wm/niri) - A scrollable-tiling Wayland compositor. bakawm references portions of niri's source code during development. Very Thanks!
+- [Hyprland](https://github.com/hyprwm/Hyprland) - I like this WM's lua config file format, so I use it.
+Very Thanks!
 
 ## License
 
