@@ -972,6 +972,7 @@ impl Drop for SurfaceData {
 }
 
 struct BackendData {
+    #[cfg(feature = "xdp-gnome-screencast")]
     gbm: GbmDevice<DrmDeviceFd>,
     surfaces: HashMap<crtc::Handle, SurfaceData>,
     non_desktop_connectors: Vec<(connector::Handle, crtc::Handle)>,
@@ -1186,6 +1187,7 @@ impl AnvilState<UdevData> {
         self.backend_data.backends.insert(
             node,
             BackendData {
+                #[cfg(feature = "xdp-gnome-screencast")]
                 gbm,
                 registration_token,
                 drm_output_manager,
@@ -1509,12 +1511,12 @@ impl AnvilState<UdevData> {
                 leasing_state.withdraw_connector(connector.handle());
             }
         } else if let Some(surface) = device.surfaces.remove(&crtc) {
-            let output_name = surface.output.name();
             self.space.unmap_output(&surface.output);
             self.space.refresh();
 
             #[cfg(feature = "xdp-gnome-screencast")]
             {
+                let output_name = surface.output.name();
                 let mut ipc_outputs = self.backend_data.ipc_outputs.lock().unwrap();
                 let key = ipc_outputs
                     .iter()
@@ -1969,6 +1971,7 @@ impl AnvilState<UdevData> {
             )
         };
 
+        #[cfg(feature = "xdp-gnome-screencast")]
         let mut casts_to_stop = vec![];
         #[cfg(feature = "xdp-gnome-screencast")]
         {
@@ -2001,6 +2004,7 @@ impl AnvilState<UdevData> {
         // Cleanup finished close animations (after drop(renderer) so self is no longer borrowed)
         self.cleanup_finished_close_animations();
 
+        #[cfg(feature = "xdp-gnome-screencast")]
         for id in casts_to_stop {
             self.stop_cast(id);
         }

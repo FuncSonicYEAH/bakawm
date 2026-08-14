@@ -10,10 +10,11 @@ use smithay::{
         },
     },
     input::pointer::CursorImageStatus,
-    output::Output,
     render_elements,
     utils::{Physical, Point, Scale},
 };
+#[cfg(feature = "xdp-gnome-screencast")]
+use smithay::output::Output;
 #[cfg(feature = "debug")]
 use smithay::{
     backend::renderer::{

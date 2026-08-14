@@ -117,12 +117,13 @@ use smithay::{
 #[cfg(feature = "xwayland")]
 use crate::cursor::Cursor;
 use crate::{
-    dbus::gnome_shell_introspect::{IntrospectToState, StateToIntrospect, WindowProperties},
     focus::{KeyboardFocusTarget, PointerFocusTarget},
     ipc::{IpcRequest, IpcResponse, OutputInfo, WindowInfo},
     screencopy::{Screencopy, ScreencopyHandler, ScreencopyManagerState},
     shell::{WindowElement, WindowRenderElement},
 };
+#[cfg(feature = "xdp-gnome-screencast")]
+use crate::dbus::gnome_shell_introspect::{IntrospectToState, StateToIntrospect, WindowProperties};
 use smithay::backend::renderer::gles::GlesRenderer;
 #[cfg(feature = "xwayland")]
 use smithay::{
