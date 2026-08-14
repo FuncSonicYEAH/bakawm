@@ -226,8 +226,16 @@ impl<'a, 'b>
             >,
         > as smithay::backend::renderer::RendererSuper>::Error,
     > {
-        RenderElement::<GlesRenderer>::draw(&self.0, frame.as_mut(), src, dst, damage, opaque_regions, cache)
-            .map_err(Into::into)
+        RenderElement::<GlesRenderer>::draw(
+            &self.0,
+            frame.as_mut(),
+            src,
+            dst,
+            damage,
+            opaque_regions,
+            cache,
+        )
+        .map_err(Into::into)
     }
 
     fn underlying_storage(

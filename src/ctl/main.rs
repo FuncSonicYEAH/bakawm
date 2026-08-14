@@ -200,7 +200,10 @@ fn window_list() -> Result<(), String> {
                 return Ok(());
             }
             // Compute column widths for nice alignment.
-            println!("{:<6} {:<24} {:<24} {}", "ID", "Title", "App ID", "Geometry");
+            println!(
+                "{:<6} {:<24} {:<24} {}",
+                "ID", "Title", "App ID", "Geometry"
+            );
             for w in &windows {
                 let geo = w
                     .geometry
@@ -218,8 +221,8 @@ fn window_list() -> Result<(), String> {
 }
 
 fn window_dispatch(request: IpcRequest) -> Result<(), String> {
-    let (response, _) = send_request(&request)
-        .map_err(|e| format!("Failed to send request: {e}"))?;
+    let (response, _) =
+        send_request(&request).map_err(|e| format!("Failed to send request: {e}"))?;
 
     match response {
         IpcResponse::Ok => Ok(()),
@@ -269,8 +272,8 @@ fn cmd_screenshot(args: &[String]) -> Result<(), String> {
     let request = IpcRequest::Screenshot {
         output: output_name,
     };
-    let (response, binary) = send_request(&request)
-        .map_err(|e| format!("Failed to request screenshot: {e}"))?;
+    let (response, binary) =
+        send_request(&request).map_err(|e| format!("Failed to request screenshot: {e}"))?;
 
     match (response, binary) {
         (IpcResponse::Screenshot { width, height, .. }, Some(png_bytes)) => {
@@ -281,12 +284,10 @@ fn cmd_screenshot(args: &[String]) -> Result<(), String> {
             } else {
                 // Refuse to dump binary to an interactive terminal.
                 if io::stdout().is_terminal() {
-                    return Err(
-                        "refusing to write binary PNG to a terminal. \
+                    return Err("refusing to write binary PNG to a terminal. \
                          Pipe into another program (e.g. `bakawm-ctl screenshot | swappy -`) \
                          or use --file <path>."
-                            .to_owned(),
-                    );
+                        .to_owned());
                 }
                 let stdout = io::stdout();
                 let mut lock = stdout.lock();

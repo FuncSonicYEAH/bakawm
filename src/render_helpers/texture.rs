@@ -2,9 +2,7 @@
 //!
 //! Based on niri's TextureBuffer implementation.
 
-use smithay::backend::renderer::element::{
-    Element, Id, Kind, RenderElement, UnderlyingStorage,
-};
+use smithay::backend::renderer::element::{Element, Id, Kind, RenderElement, UnderlyingStorage};
 use smithay::backend::renderer::gles::GlesTexture;
 use smithay::backend::renderer::utils::{CommitCounter, OpaqueRegions};
 use smithay::backend::renderer::{ContextId, Frame, Renderer, Texture};

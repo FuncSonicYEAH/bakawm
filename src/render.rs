@@ -23,8 +23,7 @@ use smithay::{
     output::Output,
     utils::{Buffer, Point, Rectangle, Scale, Size, Transform},
     wayland::{
-        background_effect::BackgroundEffectSurfaceCachedState,
-        compositor::with_states,
+        background_effect::BackgroundEffectSurfaceCachedState, compositor::with_states,
         shell::wlr_layer::Layer as WlrLayer,
     },
 };
@@ -35,7 +34,10 @@ use crate::{
     config::{BlurConfig, Config},
     drawing::{CLEAR_COLOR, CLEAR_COLOR_FULLSCREEN, PointerRenderElement},
     render_helpers::{blur::BlurOptions, framebuffer_effect::FramebufferEffectElement},
-    shell::{FullscreenSurface, WindowElement, WindowRenderElement, closing_window::ClosingWindowRenderElement},
+    shell::{
+        FullscreenSurface, WindowElement, WindowRenderElement,
+        closing_window::ClosingWindowRenderElement,
+    },
 };
 
 #[cfg(feature = "udev")]
@@ -106,6 +108,7 @@ where
     Output(OutputRenderElements<R, E>),
     Blur(FramebufferEffectElement),
     ClosingWindow(ClosingWindowRenderElement),
+    ResizeSnapshot(crate::layout::ResizeSnapshotRenderElement),
 }
 
 impl<R, E> std::fmt::Debug for OutputRenderElementsWithBlur<R, E>
@@ -119,6 +122,7 @@ where
             Self::Output(e) => f.debug_tuple("Output").field(e).finish(),
             Self::Blur(e) => f.debug_tuple("Blur").field(e).finish(),
             Self::ClosingWindow(e) => f.debug_tuple("ClosingWindow").field(e).finish(),
+            Self::ResizeSnapshot(e) => f.debug_tuple("ResizeSnapshot").field(e).finish(),
         }
     }
 }
@@ -145,6 +149,7 @@ where
             Self::Output(e) => e.id(),
             Self::Blur(e) => e.id(),
             Self::ClosingWindow(e) => e.id(),
+            Self::ResizeSnapshot(e) => e.id(),
         }
     }
 
@@ -153,6 +158,7 @@ where
             Self::Output(e) => e.current_commit(),
             Self::Blur(e) => e.current_commit(),
             Self::ClosingWindow(e) => e.current_commit(),
+            Self::ResizeSnapshot(e) => e.current_commit(),
         }
     }
 
@@ -161,6 +167,7 @@ where
             Self::Output(e) => e.geometry(scale),
             Self::Blur(e) => e.geometry(scale),
             Self::ClosingWindow(e) => e.geometry(scale),
+            Self::ResizeSnapshot(e) => e.geometry(scale),
         }
     }
 
@@ -169,6 +176,7 @@ where
             Self::Output(e) => e.transform(),
             Self::Blur(e) => e.transform(),
             Self::ClosingWindow(e) => e.transform(),
+            Self::ResizeSnapshot(e) => e.transform(),
         }
     }
 
@@ -177,6 +185,7 @@ where
             Self::Output(e) => e.src(),
             Self::Blur(e) => e.src(),
             Self::ClosingWindow(e) => e.src(),
+            Self::ResizeSnapshot(e) => e.src(),
         }
     }
 
@@ -189,6 +198,7 @@ where
             Self::Output(e) => e.damage_since(scale, commit),
             Self::Blur(e) => e.damage_since(scale, commit),
             Self::ClosingWindow(e) => e.damage_since(scale, commit),
+            Self::ResizeSnapshot(e) => e.damage_since(scale, commit),
         }
     }
 
@@ -197,6 +207,7 @@ where
             Self::Output(e) => e.opaque_regions(scale),
             Self::Blur(e) => e.opaque_regions(scale),
             Self::ClosingWindow(e) => e.opaque_regions(scale),
+            Self::ResizeSnapshot(e) => e.opaque_regions(scale),
         }
     }
 
@@ -205,6 +216,7 @@ where
             Self::Output(e) => e.alpha(),
             Self::Blur(e) => e.alpha(),
             Self::ClosingWindow(e) => e.alpha(),
+            Self::ResizeSnapshot(e) => e.alpha(),
         }
     }
 
@@ -213,6 +225,7 @@ where
             Self::Output(e) => e.kind(),
             Self::Blur(e) => e.kind(),
             Self::ClosingWindow(e) => e.kind(),
+            Self::ResizeSnapshot(e) => e.kind(),
         }
     }
 
@@ -221,6 +234,7 @@ where
             Self::Output(e) => e.is_framebuffer_effect(),
             Self::Blur(e) => e.is_framebuffer_effect(),
             Self::ClosingWindow(e) => e.is_framebuffer_effect(),
+            Self::ResizeSnapshot(e) => e.is_framebuffer_effect(),
         }
     }
 }
@@ -241,19 +255,42 @@ where
     ) -> Result<(), GlesError> {
         match self {
             Self::Output(e) => e.draw(frame, src, dst, damage, opaque_regions, cache),
-            Self::Blur(e) => RenderElement::<GlesRenderer>::draw(e, frame, src, dst, damage, opaque_regions, cache),
-            Self::ClosingWindow(e) => RenderElement::<GlesRenderer>::draw(e, frame, src, dst, damage, opaque_regions, cache),
+            Self::Blur(e) => RenderElement::<GlesRenderer>::draw(
+                e,
+                frame,
+                src,
+                dst,
+                damage,
+                opaque_regions,
+                cache,
+            ),
+            Self::ClosingWindow(e) => RenderElement::<GlesRenderer>::draw(
+                e,
+                frame,
+                src,
+                dst,
+                damage,
+                opaque_regions,
+                cache,
+            ),
+            Self::ResizeSnapshot(e) => RenderElement::<GlesRenderer>::draw(
+                e,
+                frame,
+                src,
+                dst,
+                damage,
+                opaque_regions,
+                cache,
+            ),
         }
     }
 
-    fn underlying_storage(
-        &self,
-        renderer: &mut GlesRenderer,
-    ) -> Option<UnderlyingStorage<'_>> {
+    fn underlying_storage(&self, renderer: &mut GlesRenderer) -> Option<UnderlyingStorage<'_>> {
         match self {
             Self::Output(e) => e.underlying_storage(renderer),
             Self::Blur(e) => e.underlying_storage(renderer),
             Self::ClosingWindow(e) => e.underlying_storage(renderer),
+            Self::ResizeSnapshot(e) => e.underlying_storage(renderer),
         }
     }
 
@@ -266,8 +303,15 @@ where
     ) -> Result<(), GlesError> {
         match self {
             Self::Output(e) => e.capture_framebuffer(frame, src, dst, cache),
-            Self::Blur(e) => RenderElement::<GlesRenderer>::capture_framebuffer(e, frame, src, dst, cache),
-            Self::ClosingWindow(e) => RenderElement::<GlesRenderer>::capture_framebuffer(e, frame, src, dst, cache),
+            Self::Blur(e) => {
+                RenderElement::<GlesRenderer>::capture_framebuffer(e, frame, src, dst, cache)
+            }
+            Self::ClosingWindow(e) => {
+                RenderElement::<GlesRenderer>::capture_framebuffer(e, frame, src, dst, cache)
+            }
+            Self::ResizeSnapshot(e) => {
+                RenderElement::<GlesRenderer>::capture_framebuffer(e, frame, src, dst, cache)
+            }
         }
     }
 }
@@ -277,8 +321,7 @@ impl<'a, 'b, E> RenderElement<UdevMultiRenderer<'a, 'b>>
     for OutputRenderElementsWithBlur<UdevMultiRenderer<'a, 'b>, E>
 where
     E: RenderElement<UdevMultiRenderer<'a, 'b>>,
-    OutputRenderElements<UdevMultiRenderer<'a, 'b>, E>:
-        RenderElement<UdevMultiRenderer<'a, 'b>>,
+    OutputRenderElements<UdevMultiRenderer<'a, 'b>, E>: RenderElement<UdevMultiRenderer<'a, 'b>>,
 {
     fn draw(
         &self,
@@ -290,21 +333,37 @@ where
         cache: Option<&smithay::utils::user_data::UserDataMap>,
     ) -> Result<(), <UdevMultiRenderer<'a, 'b> as RendererSuper>::Error> {
         match self {
-            Self::Output(e) => {
-                e.draw(frame, src, dst, damage, opaque_regions, cache)
-            }
-            Self::Blur(e) => {
-                RenderElement::<GlesRenderer>::draw(
-                    e, frame.as_mut(), src, dst, damage, opaque_regions, cache,
-                )
-                .map_err(Into::into)
-            }
-            Self::ClosingWindow(e) => {
-                RenderElement::<GlesRenderer>::draw(
-                    e, frame.as_mut(), src, dst, damage, opaque_regions, cache,
-                )
-                .map_err(Into::into)
-            }
+            Self::Output(e) => e.draw(frame, src, dst, damage, opaque_regions, cache),
+            Self::Blur(e) => RenderElement::<GlesRenderer>::draw(
+                e,
+                frame.as_mut(),
+                src,
+                dst,
+                damage,
+                opaque_regions,
+                cache,
+            )
+            .map_err(Into::into),
+            Self::ClosingWindow(e) => RenderElement::<GlesRenderer>::draw(
+                e,
+                frame.as_mut(),
+                src,
+                dst,
+                damage,
+                opaque_regions,
+                cache,
+            )
+            .map_err(Into::into),
+            Self::ResizeSnapshot(e) => RenderElement::<GlesRenderer>::draw(
+                e,
+                frame.as_mut(),
+                src,
+                dst,
+                damage,
+                opaque_regions,
+                cache,
+            )
+            .map_err(Into::into),
         }
     }
 
@@ -317,6 +376,7 @@ where
             Self::Output(e) => e.underlying_storage(renderer),
             Self::Blur(e) => e.underlying_storage(gles),
             Self::ClosingWindow(e) => e.underlying_storage(gles),
+            Self::ResizeSnapshot(e) => e.underlying_storage(gles),
         }
     }
 
@@ -329,14 +389,30 @@ where
     ) -> Result<(), <UdevMultiRenderer<'a, 'b> as RendererSuper>::Error> {
         match self {
             Self::Output(e) => e.capture_framebuffer(frame, src, dst, cache),
-            Self::Blur(e) => {
-                RenderElement::<GlesRenderer>::capture_framebuffer(e, frame.as_mut(), src, dst, cache)
-                    .map_err(Into::into)
-            }
-            Self::ClosingWindow(e) => {
-                RenderElement::<GlesRenderer>::capture_framebuffer(e, frame.as_mut(), src, dst, cache)
-                    .map_err(Into::into)
-            }
+            Self::Blur(e) => RenderElement::<GlesRenderer>::capture_framebuffer(
+                e,
+                frame.as_mut(),
+                src,
+                dst,
+                cache,
+            )
+            .map_err(Into::into),
+            Self::ClosingWindow(e) => RenderElement::<GlesRenderer>::capture_framebuffer(
+                e,
+                frame.as_mut(),
+                src,
+                dst,
+                cache,
+            )
+            .map_err(Into::into),
+            Self::ResizeSnapshot(e) => RenderElement::<GlesRenderer>::capture_framebuffer(
+                e,
+                frame.as_mut(),
+                src,
+                dst,
+                cache,
+            )
+            .map_err(Into::into),
         }
     }
 }
@@ -349,7 +425,8 @@ pub fn space_preview_elements<'a, R, C>(
 where
     R: Renderer + ImportAll + ImportMem,
     WindowElement: AsRenderElements<R, RenderElement = WindowRenderElement>,
-    C: From<CropRenderElement<RelocateRenderElement<RescaleRenderElement<WindowRenderElement>>>> + 'a,
+    C: From<CropRenderElement<RelocateRenderElement<RescaleRenderElement<WindowRenderElement>>>>
+        + 'a,
 {
     let constrain_behavior = ConstrainBehavior {
         reference: ConstrainReference::BoundingBox,
@@ -446,12 +523,8 @@ fn resolve_window_blur(window: &WindowElement, config: &Config) -> ResolvedWindo
                 app_id.as_ref().map_or(false, |id| id.contains(rule_id))
                     && title.as_ref().map_or(false, |t| t.contains(rule_title))
             }
-            (Some(rule_id), None) => {
-                app_id.as_ref().map_or(false, |id| id.contains(rule_id))
-            }
-            (None, Some(rule_title)) => {
-                title.as_ref().map_or(false, |t| t.contains(rule_title))
-            }
+            (Some(rule_id), None) => app_id.as_ref().map_or(false, |id| id.contains(rule_id)),
+            (None, Some(rule_title)) => title.as_ref().map_or(false, |t| t.contains(rule_title)),
             (None, None) => true,
         };
 
@@ -546,11 +619,9 @@ where
         let elements = custom_elements
             .into_iter()
             .map(|e| OutputRenderElementsWithBlur::from(OutputRenderElements::from(e)))
-            .chain(
-                window_render_elements.into_iter().map(|e| {
-                    OutputRenderElementsWithBlur::from(OutputRenderElements::Window(Wrap::from(e)))
-                }),
-            )
+            .chain(window_render_elements.into_iter().map(|e| {
+                OutputRenderElementsWithBlur::from(OutputRenderElements::Window(Wrap::from(e)))
+            }))
             .collect::<Vec<_>>();
         (elements, CLEAR_COLOR_FULLSCREEN)
     } else {
@@ -563,9 +634,7 @@ where
         if show_window_preview && space.elements_for_output(output).next().is_some() {
             output_render_elements.extend(
                 space_preview_elements::<R, OutputRenderElements<R, WindowRenderElement>>(
-                    renderer,
-                    space,
-                    output,
+                    renderer, space, output,
                 )
                 .map(OutputRenderElementsWithBlur::from),
             );
@@ -578,46 +647,47 @@ where
         //
         // `render_output_internal` draws elements via `iter().rev()`, so elements at the end
         // of the vec are drawn first (bottom) and elements at the start are drawn last (top).
-        let render_layer = |renderer: &mut R,
-                            layer: WlrLayer,
-                            elements: &mut Vec<OutputRenderElementsWithBlur<R, WindowRenderElement>>| {
-            let surfaces: Vec<_> = layer_map.layers_on(layer).collect();
-            for surface in surfaces {
-                let namespace = surface.namespace().to_owned();
-                let layer_blur = resolve_layer_blur(&namespace, config);
+        let render_layer =
+            |renderer: &mut R,
+             layer: WlrLayer,
+             elements: &mut Vec<OutputRenderElementsWithBlur<R, WindowRenderElement>>| {
+                let surfaces: Vec<_> = layer_map.layers_on(layer).collect();
+                for surface in surfaces {
+                    let namespace = surface.namespace().to_owned();
+                    let layer_blur = resolve_layer_blur(&namespace, config);
 
-                if let Some(geo) = layer_map.layer_geometry(surface) {
-                    let rendered: Vec<WaylandSurfaceRenderElement<R>> =
-                        AsRenderElements::<R>::render_elements(
-                            surface,
-                            renderer,
-                            geo.loc.to_physical_precise_round(output_scale),
-                            Scale::from(output_scale),
-                            1.0,
-                        );
-                    elements.extend(rendered.into_iter().map(|e| {
-                        OutputRenderElementsWithBlur::from(OutputRenderElements::Space(
-                            SpaceRenderElements::Surface(e),
-                        ))
-                    }));
+                    if let Some(geo) = layer_map.layer_geometry(surface) {
+                        let rendered: Vec<WaylandSurfaceRenderElement<R>> =
+                            AsRenderElements::<R>::render_elements(
+                                surface,
+                                renderer,
+                                geo.loc.to_physical_precise_round(output_scale),
+                                Scale::from(output_scale),
+                                1.0,
+                            );
+                        elements.extend(rendered.into_iter().map(|e| {
+                            OutputRenderElementsWithBlur::from(OutputRenderElements::Space(
+                                SpaceRenderElements::Surface(e),
+                            ))
+                        }));
 
-                    // Layer-rule blur: if a matching rule enables blur for this layer surface,
-                    // insert a blur element right after it (drawn before it in rev order).
-                    if layer_blur.enable {
-                        let geometry = geo.to_f64();
-                        let blur_elem = FramebufferEffectElement::new(
-                            geometry,
-                            output_scale,
-                            Some(BlurOptions {
-                                passes: layer_blur.passes,
-                                offset: layer_blur.offset,
-                            }),
-                        );
-                        elements.push(OutputRenderElementsWithBlur::Blur(blur_elem));
+                        // Layer-rule blur: if a matching rule enables blur for this layer surface,
+                        // insert a blur element right after it (drawn before it in rev order).
+                        if layer_blur.enable {
+                            let geometry = geo.to_f64();
+                            let blur_elem = FramebufferEffectElement::new(
+                                geometry,
+                                output_scale,
+                                Some(BlurOptions {
+                                    passes: layer_blur.passes,
+                                    offset: layer_blur.offset,
+                                }),
+                            );
+                            elements.push(OutputRenderElementsWithBlur::Blur(blur_elem));
+                        }
                     }
                 }
-            }
-        };
+            };
 
         // Upper layers (rendered on top of windows)
         render_layer(renderer, WlrLayer::Overlay, &mut output_render_elements);
@@ -640,7 +710,8 @@ where
         //             draw: bg → bottom → blur_B → B → blur_A → A → top → overlay → custom
         if let Some(output_geo) = space.output_geometry(output) {
             // Collect per-window blur for xray ON mode (inserted after all windows)
-            let mut xray_blur_elements: Vec<OutputRenderElementsWithBlur<R, WindowRenderElement>> = Vec::new();
+            let mut xray_blur_elements: Vec<OutputRenderElementsWithBlur<R, WindowRenderElement>> =
+                Vec::new();
 
             // Iterate windows in z-order (topmost first, matching render_elements_for_region's .rev())
             let windows: Vec<_> = space.elements_for_output(output).collect();
@@ -649,6 +720,13 @@ where
                 // (avoids a position flash on the first frame before centering)
                 if window.decoration_state().needs_center {
                     continue;
+                }
+                // Skip windows on inactive workspaces (fully hidden).
+                {
+                    let ws = window.decoration_state();
+                    if ws.hidden && ws.fade_anim.is_none() {
+                        continue;
+                    }
                 }
 
                 let win_geo = match space.element_geometry(window) {
@@ -681,18 +759,26 @@ where
                                 (win_geo.size.w / 2),
                                 (win_geo.size.h / 2),
                             ));
-                            let scaled = RescaleRenderElement::from_element(elem, center, scale_factor.max(0.));
+                            let scaled = RescaleRenderElement::from_element(
+                                elem,
+                                center,
+                                scale_factor.max(0.),
+                            );
                             output_render_elements.push(OutputRenderElementsWithBlur::from(
                                 OutputRenderElements::OpenAnim(scaled),
                             ));
                         } else {
                             output_render_elements.push(OutputRenderElementsWithBlur::from(
-                                OutputRenderElements::Space(SpaceRenderElements::Element(Wrap::from(elem))),
+                                OutputRenderElements::Space(SpaceRenderElements::Element(
+                                    Wrap::from(elem),
+                                )),
                             ));
                         }
                     } else {
                         output_render_elements.push(OutputRenderElementsWithBlur::from(
-                            OutputRenderElements::Space(SpaceRenderElements::Element(Wrap::from(elem))),
+                            OutputRenderElements::Space(SpaceRenderElements::Element(Wrap::from(
+                                elem,
+                            ))),
                         ));
                     }
                 }
@@ -720,14 +806,11 @@ where
                     };
 
                     if should_blur && effective_blur.blur.enable {
-                        let bbox = space.element_bbox(window).unwrap_or_else(|| {
-                            SpaceElement::bbox(window)
-                        });
-                        let geometry = Rectangle::new(
-                            bbox.loc - output_geo.loc,
-                            bbox.size,
-                        )
-                        .to_f64();
+                        let bbox = space
+                            .element_bbox(window)
+                            .unwrap_or_else(|| SpaceElement::bbox(window));
+                        let geometry =
+                            Rectangle::new(bbox.loc - output_geo.loc, bbox.size).to_f64();
                         let blur_elem = FramebufferEffectElement::new(
                             geometry,
                             output_scale,
@@ -739,8 +822,7 @@ where
 
                         if effective_blur.blur.xray {
                             // xray ON: group all blur elements together
-                            xray_blur_elements
-                                .push(OutputRenderElementsWithBlur::Blur(blur_elem));
+                            xray_blur_elements.push(OutputRenderElementsWithBlur::Blur(blur_elem));
                         } else {
                             // xray OFF: insert right after this window
                             output_render_elements
@@ -748,6 +830,7 @@ where
                         }
                     }
                 }
+
             }
 
             // Append xray blur elements after all windows (drawn after bg+bottom but before windows)
@@ -797,7 +880,14 @@ where
     OutputRenderElements<R, WindowRenderElement>: RenderElement<R>,
     OutputRenderElementsWithBlur<R, WindowRenderElement>: RenderElement<R>,
 {
-    let (elements, clear_color) =
-        output_elements(output, space, closing_windows, custom_elements, renderer, show_window_preview, config);
+    let (elements, clear_color) = output_elements(
+        output,
+        space,
+        closing_windows,
+        custom_elements,
+        renderer,
+        show_window_preview,
+        config,
+    );
     damage_tracker.render_output(renderer, framebuffer, age, &elements, clear_color)
 }

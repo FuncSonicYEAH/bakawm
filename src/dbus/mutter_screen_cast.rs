@@ -8,7 +8,7 @@ use tracing::{debug, warn};
 use zbus::fdo::RequestNameFlags;
 use zbus::object_server::{InterfaceRef, SignalEmitter};
 use zbus::zvariant::{DeserializeDict, OwnedObjectPath, SerializeDict, Type, Value};
-use zbus::{fdo, interface, ObjectServer};
+use zbus::{ObjectServer, fdo, interface};
 
 use super::Start;
 use crate::screencasting::{CastSessionId, CastStreamId, IpcOutput, IpcOutputMap};
@@ -127,7 +127,7 @@ impl ScreenCast {
             Err(err) => {
                 return Err(fdo::Error::Failed(format!(
                     "error creating session object: {err:?}"
-                )))
+                )));
             }
         }
 
@@ -226,7 +226,7 @@ impl Session {
             Err(err) => {
                 return Err(fdo::Error::Failed(format!(
                     "error creating stream object: {err:?}"
-                )))
+                )));
             }
         }
 
@@ -266,7 +266,7 @@ impl Session {
             Err(err) => {
                 return Err(fdo::Error::Failed(format!(
                     "error creating stream object: {err:?}"
-                )))
+                )));
             }
         }
 
@@ -281,7 +281,7 @@ impl Session {
 impl Stream {
     #[zbus(signal)]
     pub async fn pipe_wire_stream_added(ctxt: &SignalEmitter<'_>, node_id: u32)
-        -> zbus::Result<()>;
+    -> zbus::Result<()>;
 
     #[zbus(property)]
     async fn parameters(&self) -> StreamParameters {
@@ -302,12 +302,10 @@ impl Stream {
                     }
                 }
             }
-            StreamTarget::Window { .. } => {
-                StreamParameters {
-                    position: (0, 0),
-                    size: (1, 1),
-                }
-            }
+            StreamTarget::Window { .. } => StreamParameters {
+                position: (0, 0),
+                size: (1, 1),
+            },
         }
     }
 }
@@ -315,9 +313,7 @@ impl Stream {
 impl StreamTarget {
     fn find_output<'a>(&self, ipc_outputs: &'a HashMap<u64, IpcOutput>) -> Option<&'a IpcOutput> {
         match self {
-            StreamTarget::Output { name } => {
-                ipc_outputs.values().find(|o| o.name == *name)
-            }
+            StreamTarget::Output { name } => ipc_outputs.values().find(|o| o.name == *name),
             StreamTarget::Window { .. } => None,
         }
     }

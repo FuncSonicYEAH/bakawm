@@ -1,15 +1,15 @@
 use std::collections::HashSet;
+use std::fmt;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Duration;
-use std::fmt;
 
 use anyhow::Context as _;
 use calloop::LoopHandle;
-use smithay::backend::renderer::element::utils::{Relocate, RelocateRenderElement};
-use smithay::backend::renderer::gles::GlesRenderer;
 use smithay::backend::allocator::format::FormatSet;
 use smithay::backend::allocator::gbm::GbmDevice;
 use smithay::backend::drm::DrmDeviceFd;
+use smithay::backend::renderer::element::utils::{Relocate, RelocateRenderElement};
+use smithay::backend::renderer::gles::GlesRenderer;
 use smithay::output::Output;
 use smithay::utils::{Physical, Size};
 use tracing::warn;
@@ -135,7 +135,12 @@ pub struct Screencasting {
     pub casts: Vec<Cast>,
     pub pw_to_state: calloop::channel::Sender<PwToState>,
     pub pipewire: Option<PipeWire>,
-    pub pending_dynamic_casts: Vec<(CastSessionId, CastStreamId, CursorMode, zbus::object_server::SignalEmitter<'static>)>,
+    pub pending_dynamic_casts: Vec<(
+        CastSessionId,
+        CastStreamId,
+        CursorMode,
+        zbus::object_server::SignalEmitter<'static>,
+    )>,
 }
 
 impl std::fmt::Debug for Screencasting {
@@ -211,7 +216,10 @@ pub fn render_for_screen_cast_inner(
         }
 
         match &cast.target {
-            CastTarget::Output { output: cast_output, name } => {
+            CastTarget::Output {
+                output: cast_output,
+                name,
+            } => {
                 if cast_output != &weak {
                     tracing::debug!(
                         cast_output = ?cast_output.upgrade().map(|o| o.name()),
@@ -244,7 +252,9 @@ pub fn render_for_screen_cast_inner(
             continue;
         }
 
-        let custom_elements: Vec<crate::render::CustomRenderElements<smithay::backend::renderer::gles::GlesRenderer>> = vec![];
+        let custom_elements: Vec<
+            crate::render::CustomRenderElements<smithay::backend::renderer::gles::GlesRenderer>,
+        > = vec![];
         let (elements, _clear_color) = crate::render::output_elements(
             output,
             space,
@@ -259,7 +269,9 @@ pub fn render_for_screen_cast_inner(
 
         let cursor_elem_count = if cast.cursor_mode == CursorMode::Embedded {
             let output_geo = space.output_geometry(output).unwrap();
-            let pos = (pointer_location - output_geo.loc.to_f64()).to_physical_precise_round(scale).upscale(-1);
+            let pos = (pointer_location - output_geo.loc.to_f64())
+                .to_physical_precise_round(scale)
+                .upscale(-1);
             crate::drawing::draw_pointer(
                 renderer,
                 pointer_element,
@@ -280,14 +292,11 @@ pub fn render_for_screen_cast_inner(
             cast_elements.push(CastRenderElement::from(elem));
         }
 
-        let cursor_data = CursorData::compute(
-            &cast_elements,
-            cursor_elem_count,
-            pointer_location,
-            scale,
-        );
+        let cursor_data =
+            CursorData::compute(&cast_elements, cursor_elem_count, pointer_location, scale);
 
-        let rendered = cast.dequeue_buffer_and_render(renderer, &cast_elements, &cursor_data, size, scale);
+        let rendered =
+            cast.dequeue_buffer_and_render(renderer, &cast_elements, &cursor_data, size, scale);
 
         if rendered {
             tracing::trace!("screencast frame rendered successfully");
@@ -405,14 +414,11 @@ pub fn render_windows_for_screen_cast_inner(
             elements.push(CastRenderElement::from(elem));
         }
 
-        let cursor_data = CursorData::compute(
-            &elements,
-            cursor_elem_count,
-            pointer_location,
-            scale,
-        );
+        let cursor_data =
+            CursorData::compute(&elements, cursor_elem_count, pointer_location, scale);
 
-        let rendered = cast.dequeue_buffer_and_render(renderer, &elements, &cursor_data, bbox, scale);
+        let rendered =
+            cast.dequeue_buffer_and_render(renderer, &elements, &cursor_data, bbox, scale);
 
         if rendered {
             cast.last_frame_time = get_monotonic_time();
@@ -434,11 +440,8 @@ impl AnvilState<UdevData> {
 
         if self.screencasting.pipewire.is_none() {
             tracing::info!("initializing PipeWire for screencast");
-            let pw = PipeWire::new(
-                self.handle.clone(),
-                self.screencasting.pw_to_state.clone(),
-            )
-            .context("error initializing PipeWire")?;
+            let pw = PipeWire::new(self.handle.clone(), self.screencasting.pw_to_state.clone())
+                .context("error initializing PipeWire")?;
             self.screencasting.pipewire = Some(pw);
             tracing::info!("PipeWire initialized successfully");
         }
@@ -454,7 +457,10 @@ impl AnvilState<UdevData> {
             anyhow::bail!("no DMA-BUF render formats available, screencast will not work");
         }
 
-        tracing::debug!(formats = render_formats.iter().count(), "screencast render formats");
+        tracing::debug!(
+            formats = render_formats.iter().count(),
+            "screencast render formats"
+        );
 
         Ok((gbm, render_formats))
     }
@@ -528,7 +534,11 @@ impl AnvilState<UdevData> {
                         (CastTarget::output(output), size, refresh)
                     }
                     StreamTargetId::Window { id } => {
-                        let window = self.space.elements().enumerate().find(|(idx, _)| (*idx as u64) + 1 == id);
+                        let window = self
+                            .space
+                            .elements()
+                            .enumerate()
+                            .find(|(idx, _)| (*idx as u64) + 1 == id);
                         let Some((_, window)) = window else {
                             warn!("error starting screencast: requested window {id} is missing");
                             self.stop_cast(session_id);
@@ -758,7 +768,7 @@ fn cast_params_for_output(output: &Output) -> (Size<i32, Physical>, u32) {
 }
 
 pub fn get_monotonic_time() -> Duration {
-    use smithay::reexports::rustix::time::{clock_gettime, ClockId};
+    use smithay::reexports::rustix::time::{ClockId, clock_gettime};
     let ts = clock_gettime(ClockId::Monotonic);
     Duration::new(ts.tv_sec as u64, ts.tv_nsec as u32)
 }

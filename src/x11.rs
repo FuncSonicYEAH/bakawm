@@ -46,7 +46,8 @@ use smithay::{
     wayland::{
         compositor,
         dmabuf::{
-            DmabufFeedback, DmabufFeedbackBuilder, DmabufGlobal, DmabufHandler, DmabufState, ImportNotifier,
+            DmabufFeedback, DmabufFeedbackBuilder, DmabufGlobal, DmabufHandler, DmabufState,
+            ImportNotifier,
         },
         presentation::Refresh,
     },
@@ -76,8 +77,18 @@ impl DmabufHandler for AnvilState<X11Data> {
         &mut self.backend_data.dmabuf_state
     }
 
-    fn dmabuf_imported(&mut self, _global: &DmabufGlobal, dmabuf: Dmabuf, notifier: ImportNotifier) {
-        if self.backend_data.renderer.import_dmabuf(&dmabuf, None).is_ok() {
+    fn dmabuf_imported(
+        &mut self,
+        _global: &DmabufGlobal,
+        dmabuf: Dmabuf,
+        notifier: ImportNotifier,
+    ) {
+        if self
+            .backend_data
+            .renderer
+            .import_dmabuf(&dmabuf, None)
+            .is_ok()
+        {
             let _ = notifier.successful::<AnvilState<X11Data>>();
         } else {
             notifier.failed();
@@ -116,6 +127,8 @@ impl Backend for X11Data {
         config: &crate::config::Config,
         _now: Duration,
     ) -> Option<crate::state::CapturedFrame> {
+        use crate::render::output_elements;
+        use crate::state::CapturedFrame;
         use smithay::backend::allocator::Fourcc;
         use smithay::backend::renderer::element::{AsRenderElements, Element, RenderElement};
         use smithay::backend::renderer::gles::GlesTexture;
@@ -123,8 +136,6 @@ impl Backend for X11Data {
             Color32F, ExportMem, Frame, Offscreen, Renderer, Texture,
         };
         use smithay::utils::Rectangle;
-        use crate::render::output_elements;
-        use crate::state::CapturedFrame;
 
         let scale = Scale::from(output.current_scale().fractional_scale());
         let output_transform = output.current_transform();
@@ -153,18 +164,27 @@ impl Backend for X11Data {
             };
             let cursor_pos = pointer_location - output_geometry.loc.to_f64();
             pointer_element.set_status(cursor_status.clone());
-            custom_elements.extend(pointer_element.render_elements(
-                renderer,
-                (cursor_pos - cursor_hotspot.to_f64())
-                    .to_physical(scale)
-                    .to_i32_round(),
-                scale,
-                1.0,
-            ));
+            custom_elements.extend(
+                pointer_element.render_elements(
+                    renderer,
+                    (cursor_pos - cursor_hotspot.to_f64())
+                        .to_physical(scale)
+                        .to_i32_round(),
+                    scale,
+                    1.0,
+                ),
+            );
         }
 
-        let (elements, _clear_color) =
-            output_elements(output, space, &[], custom_elements, renderer, show_window_preview, config);
+        let (elements, _clear_color) = output_elements(
+            output,
+            space,
+            &[],
+            custom_elements,
+            renderer,
+            show_window_preview,
+            config,
+        );
 
         let fourcc = Fourcc::Abgr8888;
         let buffer_size = size.to_logical(1).to_buffer(1, Transform::Normal);
@@ -215,11 +235,9 @@ impl Backend for X11Data {
             return None;
         }
 
-        let Ok(mapping) = renderer.copy_framebuffer(
-            &target,
-            Rectangle::from_size(target.size()),
-            fourcc,
-        ) else {
+        let Ok(mapping) =
+            renderer.copy_framebuffer(&target, Rectangle::from_size(target.size()), fourcc)
+        else {
             error!("Failed to copy framebuffer for screenshot");
             return None;
         };
@@ -264,7 +282,10 @@ pub fn run_x11() {
 
     let skip_vulkan = std::env::var("ANVIL_NO_VULKAN")
         .map(|x| {
-            x == "1" || x.to_lowercase() == "true" || x.to_lowercase() == "yes" || x.to_lowercase() == "y"
+            x == "1"
+                || x.to_lowercase() == "true"
+                || x.to_lowercase() == "yes"
+                || x.to_lowercase() == "y"
         })
         .unwrap_or(false);
 
@@ -272,14 +293,16 @@ pub fn run_x11() {
         Instance::new(Version::VERSION_1_2, None)
             .ok()
             .and_then(|instance| {
-                PhysicalDevice::enumerate(&instance).ok().and_then(|devices| {
-                    devices
-                        .filter(|phd| phd.has_device_extension(ext::physical_device_drm::NAME))
-                        .find(|phd| {
-                            phd.primary_node().unwrap() == Some(node)
-                                || phd.render_node().unwrap() == Some(node)
-                        })
-                })
+                PhysicalDevice::enumerate(&instance)
+                    .ok()
+                    .and_then(|devices| {
+                        devices
+                            .filter(|phd| phd.has_device_extension(ext::physical_device_drm::NAME))
+                            .find(|phd| {
+                                phd.primary_node().unwrap() == Some(node)
+                                    || phd.render_node().unwrap() == Some(node)
+                            })
+                    })
             })
             .and_then(|physical_device| {
                 VulkanAllocator::new(
@@ -317,9 +340,11 @@ pub fn run_x11() {
     };
 
     #[cfg_attr(not(feature = "egl"), allow(unused_mut))]
-    let mut renderer = unsafe { GlesRenderer::new(context) }.expect("Failed to initialize renderer");
+    let mut renderer =
+        unsafe { GlesRenderer::new(context) }.expect("Failed to initialize renderer");
 
     crate::render_helpers::shaders::init(&mut renderer);
+    crate::render_helpers::custom_shaders::init(&mut renderer);
     crate::render_helpers::resources::init(&mut renderer);
 
     #[cfg(feature = "egl")]
@@ -350,10 +375,12 @@ pub fn run_x11() {
 
     #[cfg(feature = "debug")]
     #[allow(deprecated)]
-    let fps_image =
-        image::io::Reader::with_format(std::io::Cursor::new(FPS_NUMBERS_PNG), image::ImageFormat::Png)
-            .decode()
-            .unwrap();
+    let fps_image = image::io::Reader::with_format(
+        std::io::Cursor::new(FPS_NUMBERS_PNG),
+        image::ImageFormat::Png,
+    )
+    .decode()
+    .unwrap();
     #[cfg(feature = "debug")]
     let fps_texture = renderer
         .import_memory(
@@ -402,7 +429,12 @@ pub fn run_x11() {
     let output_config = state.config.outputs.iter().find(|o| o.name == OUTPUT_NAME);
     let output_position = output_config.and_then(|o| o.position).unwrap_or((0, 0));
     if let Some(output_scale) = output_config.and_then(|o| o.scale) {
-        output.change_current_state(None, None, Some(smithay::output::Scale::Fractional(output_scale)), None);
+        output.change_current_state(
+            None,
+            None,
+            Some(smithay::output::Scale::Fractional(output_scale)),
+            None,
+        );
     }
 
     state.space.map_output(&output, output_position);
@@ -471,6 +503,9 @@ pub fn run_x11() {
                     .unwrap_or_default();
             state.pre_repaint(&output, frame_target);
 
+            // Advance layout animations (move windows toward their targets).
+            state.layout.update(&mut state.space);
+
             let backend_data = &mut state.backend_data;
             // We need to borrow everything we want to refer to inside the renderer callback otherwise rustc is unhappy.
             #[cfg(feature = "debug")]
@@ -478,7 +513,10 @@ pub fn run_x11() {
             #[cfg(feature = "debug")]
             fps_element.update_fps(fps);
 
-            let (mut buffer, age) = backend_data.surface.buffer().expect("gbm device was destroyed");
+            let (mut buffer, age) = backend_data
+                .surface
+                .buffer()
+                .expect("gbm device was destroyed");
             let mut fb = match backend_data.renderer.bind(&mut buffer) {
                 Ok(fb) => fb,
                 Err(err) => {
@@ -496,6 +534,12 @@ pub fn run_x11() {
                 );
             }
 
+            // (Re)compile user-defined custom shaders if the config changed.
+            crate::render_helpers::custom_shaders::refresh_if_needed(
+                &mut backend_data.renderer,
+                &state.config,
+            );
+
             let mut elements: Vec<CustomRenderElements<GlesRenderer>> = Vec::new();
 
             // draw the cursor as relevant
@@ -510,19 +554,20 @@ pub fn run_x11() {
             let cursor_visible = !matches!(state.cursor_status, CursorImageStatus::Surface(_));
 
             let scale = Scale::from(output.current_scale().fractional_scale());
-            let cursor_hotspot = if let CursorImageStatus::Surface(ref surface) = state.cursor_status {
-                compositor::with_states(surface, |states| {
-                    states
-                        .data_map
-                        .get::<Mutex<CursorImageAttributes>>()
-                        .unwrap()
-                        .lock()
-                        .unwrap()
-                        .hotspot
-                })
-            } else {
-                (0, 0).into()
-            };
+            let cursor_hotspot =
+                if let CursorImageStatus::Surface(ref surface) = state.cursor_status {
+                    compositor::with_states(surface, |states| {
+                        states
+                            .data_map
+                            .get::<Mutex<CursorImageAttributes>>()
+                            .unwrap()
+                            .lock()
+                            .unwrap()
+                            .hotspot
+                    })
+                } else {
+                    (0, 0).into()
+                };
             let cursor_pos = state.pointer.current_location();
 
             pointer_element.set_status(state.cursor_status.clone());
@@ -600,7 +645,9 @@ pub fn run_x11() {
                             output
                                 .current_mode()
                                 .map(|mode| {
-                                    Refresh::fixed(Duration::from_secs_f64(1_000f64 / mode.refresh as f64))
+                                    Refresh::fixed(Duration::from_secs_f64(
+                                        1_000f64 / mode.refresh as f64,
+                                    ))
                                 })
                                 .unwrap_or(Refresh::Unknown),
                             0,
@@ -612,13 +659,21 @@ pub fn run_x11() {
                     if rendered {
                         if let Some(renderdoc) = state.renderdoc.as_mut() {
                             renderdoc.end_frame_capture(
-                                state.backend_data.renderer.egl_context().get_context_handle(),
+                                state
+                                    .backend_data
+                                    .renderer
+                                    .egl_context()
+                                    .get_context_handle(),
                                 std::ptr::null(),
                             );
                         }
                     } else if let Some(renderdoc) = state.renderdoc.as_mut() {
                         renderdoc.discard_frame_capture(
-                            state.backend_data.renderer.egl_context().get_context_handle(),
+                            state
+                                .backend_data
+                                .renderer
+                                .egl_context()
+                                .get_context_handle(),
                             std::ptr::null(),
                         );
                     }

@@ -19,7 +19,8 @@ Before building bakawm, make sure the following system libraries and tools are i
 - libseat (seatd)
 - libdisplay-info
 - wayland-server
-- libEGL (Mesa)
+- libEGL (Mesa / libglvnd)
+- libei (optional, for the libei backend)
 - libx11 (optional, for X11 backend)
 - libpipewire-0.3 (optional, for screen recording)
 - libdbus-1 (optional, for screen recording)
@@ -28,7 +29,7 @@ On Debian/Ubuntu:
 
 ```bash
 sudo apt install build-essential pkg-config clang libudev-dev libdrm-dev libgbm-dev \
-    libinput-dev libxkbcommon-dev libseat-dev libdisplay-info-dev \
+    libinput-dev libxkbcommon-dev libseat-dev libdisplay-info-dev libei-dev \
     wayland-protocols libegl-dev libx11-dev libx11-xcb-dev \
     libpipewire-0.3-dev libdbus-1-dev
 ```
@@ -36,9 +37,9 @@ sudo apt install build-essential pkg-config clang libudev-dev libdrm-dev libgbm-
 On Fedora:
 
 ```bash
-sudo dnf install gcc pkg-config clang systemd-devel libdrm-devel gbm-devel \
+sudo dnf install gcc pkg-config clang systemd-devel libdrm-devel mesa-libgbm-devel \
     libinput-devel libxkbcommon-devel libseat-devel libdisplay-info-devel \
-    wayland-devel mesa-libEGL-devel libX11-devel \
+    wayland-devel libglvnd-devel libX11-devel libei-devel \
     pipewire-devel dbus-devel
 ```
 

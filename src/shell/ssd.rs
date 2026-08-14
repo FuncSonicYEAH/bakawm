@@ -14,7 +14,15 @@ use smithay::{
 
 use std::cell::{RefCell, RefMut};
 
-use crate::{AnvilState, animation::Animation, config::{CornerRadius, ShadowConfig}, render_helpers::{border::BorderRenderElement, shadow::ShadowRenderElement, texture::TextureBuffer}, state::Backend};
+use crate::{
+    AnvilState,
+    animation::Animation,
+    config::{CornerRadius, ShadowConfig},
+    render_helpers::{
+        border::BorderRenderElement, shadow::ShadowRenderElement, texture::TextureBuffer,
+    },
+    state::Backend,
+};
 
 use super::WindowElement;
 
@@ -54,6 +62,18 @@ pub struct WindowState {
     /// Pre-captured snapshot for close animation.
     /// Set when the surface unmaps (commits null buffer), used in toplevel_destroyed.
     pub pending_close_snapshot: Option<PendingCloseSnapshot>,
+    /// Layout engine state (tiling target, animations).
+    pub layout: crate::layout::LayoutWindowState,
+    /// Name of the custom shader to apply to this window (from `bk.window`/rules).
+    pub shader: Option<String>,
+    /// Workspace index this window belongs to (per-output).
+    pub workspace: u32,
+    /// Whether the window is on the active workspace. Hidden windows are excluded
+    /// from the tiling layout and skipped in rendering (once any fade completes).
+    pub hidden: bool,
+    /// Workspace-switch fade animation. `0 -> 1` when entering, `1 -> 0` when
+    /// leaving. While active the window is still rendered with this alpha.
+    pub fade_anim: Option<Animation>,
 }
 
 #[derive(Debug, Clone)]
@@ -100,7 +120,11 @@ impl BorderState {
             return;
         }
         self.is_active = active;
-        let color = if active { self.active_color } else { self.inactive_color };
+        let color = if active {
+            self.active_color
+        } else {
+            self.inactive_color
+        };
         self.redraw(window_w, window_h, border_width, color);
     }
 
@@ -189,9 +213,9 @@ impl HeaderBar {
                     WindowSurface::Wayland(w) => {
                         let seat = seat.clone();
                         let toplevel = w.clone();
-                        state
-                            .handle
-                            .insert_idle(move |data| data.move_request_xdg(&toplevel, &seat, serial));
+                        state.handle.insert_idle(move |data| {
+                            data.move_request_xdg(&toplevel, &seat, serial)
+                        });
                     }
                     #[cfg(feature = "xwayland")]
                     WindowSurface::X11(w) => {
@@ -221,9 +245,9 @@ impl HeaderBar {
                     WindowSurface::Wayland(w) => {
                         let seat = seat.clone();
                         let toplevel = w.clone();
-                        state
-                            .handle
-                            .insert_idle(move |data| data.move_request_xdg(&toplevel, &seat, serial));
+                        state.handle.insert_idle(move |data| {
+                            data.move_request_xdg(&toplevel, &seat, serial)
+                        });
                     }
                     #[cfg(feature = "xwayland")]
                     WindowSurface::X11(w) => {
@@ -289,8 +313,10 @@ impl HeaderBar {
             .unwrap_or(false)
             && (needs_redraw_buttons || !self.close_button_hover)
         {
-            self.close_button
-                .update((BUTTON_WIDTH as i32, BUTTON_HEIGHT as i32), CLOSE_COLOR_HOVER);
+            self.close_button.update(
+                (BUTTON_WIDTH as i32, BUTTON_HEIGHT as i32),
+                CLOSE_COLOR_HOVER,
+            );
             self.close_button_hover = true;
         } else if !self
             .pointer_loc
@@ -307,7 +333,9 @@ impl HeaderBar {
         if self
             .pointer_loc
             .as_ref()
-            .map(|l| l.x >= (width - BUTTON_WIDTH * 2) as f64 && l.x <= (width - BUTTON_WIDTH) as f64)
+            .map(|l| {
+                l.x >= (width - BUTTON_WIDTH * 2) as f64 && l.x <= (width - BUTTON_WIDTH) as f64
+            })
             .unwrap_or(false)
             && (needs_redraw_buttons || !self.maximize_button_hover)
         {
@@ -317,7 +345,9 @@ impl HeaderBar {
         } else if !self
             .pointer_loc
             .as_ref()
-            .map(|l| l.x >= (width - BUTTON_WIDTH * 2) as f64 && l.x <= (width - BUTTON_WIDTH) as f64)
+            .map(|l| {
+                l.x >= (width - BUTTON_WIDTH * 2) as f64 && l.x <= (width - BUTTON_WIDTH) as f64
+            })
             .unwrap_or(false)
             && (needs_redraw_buttons || self.maximize_button_hover)
         {
@@ -352,14 +382,22 @@ impl<R: Renderer> AsRenderElements<R> for HeaderBar {
             .into(),
             SolidColorRenderElement::from_buffer(
                 &self.maximize_button,
-                location + (header_end_offset - button_offset.upscale(2)).to_physical_precise_round(scale),
+                location
+                    + (header_end_offset - button_offset.upscale(2))
+                        .to_physical_precise_round(scale),
                 scale,
                 alpha,
                 Kind::Unspecified,
             )
             .into(),
-            SolidColorRenderElement::from_buffer(&self.background, location, scale, alpha, Kind::Unspecified)
-                .into(),
+            SolidColorRenderElement::from_buffer(
+                &self.background,
+                location,
+                scale,
+                alpha,
+                Kind::Unspecified,
+            )
+            .into(),
         ]
     }
 }
@@ -389,6 +427,11 @@ impl WindowElement {
                 close_animation: None,
                 needs_center: false,
                 pending_close_snapshot: None,
+                layout: crate::layout::LayoutWindowState::default(),
+                shader: None,
+                workspace: 0,
+                hidden: false,
+                fade_anim: None,
             })
         });
 
@@ -440,7 +483,8 @@ impl WindowElement {
         let changed = state.border.active_color != win_config.border.color
             || state.border.inactive_color != win_config.border.inactive_color
             || state.shadow != win_config.shadow
-            || state.corner_radius != win_config.corner_radius;
+            || state.corner_radius != win_config.corner_radius
+            || state.shader != win_config.shader;
 
         if !changed {
             return false;
@@ -455,6 +499,9 @@ impl WindowElement {
 
         // Apply corner radius
         state.corner_radius = win_config.corner_radius;
+
+        // Apply custom shader
+        state.shader = win_config.shader;
 
         // Reset shader caches since config may have changed
         state.has_border_shader = None;

@@ -136,8 +136,7 @@ pub fn draw_pointer<R, F>(
     output_geometry: smithay::utils::Rectangle<i32, smithay::utils::Logical>,
     output: &Output,
     push: &mut F,
-)
-where
+) where
     R: Renderer + ImportAll + ImportMem,
     R::TextureId: Texture + Clone + Send + 'static,
     F: FnMut(PointerRenderElement<R>),
@@ -245,11 +244,14 @@ where
         let mut offset: Point<f64, Physical> = Point::from((0.0, 0.0));
         for digit in value_str.chars().map(|d| d.to_digit(10).unwrap()) {
             let digit_location = dst.loc.to_f64() + offset;
-            let digit_size = Size::<i32, Logical>::from((22, 35)).to_f64().to_physical(scale);
+            let digit_size = Size::<i32, Logical>::from((22, 35))
+                .to_f64()
+                .to_physical(scale);
             let dst = Rectangle::new(
                 digit_location.to_i32_round(),
-                ((digit_size.to_point() + digit_location).to_i32_round() - digit_location.to_i32_round())
-                    .to_size(),
+                ((digit_size.to_point() + digit_location).to_i32_round()
+                    - digit_location.to_i32_round())
+                .to_size(),
             );
             let damage = damage
                 .iter()

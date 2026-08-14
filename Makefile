@@ -14,6 +14,11 @@ FEATURES ?=
 CARGO ?= cargo
 CARGO_FLAGS ?= --release --locked
 
+# `cargo build` produces both binaries from this package.
+RELEASE_BINS := target/release/bakawm target/release/bakawm-ctl
+# Any source change triggers a rebuild.
+SRC_FILES := $(shell find src resources -type f 2>/dev/null)
+
 SESSION_MODE ?= auto
 
 ifeq ($(SESSION_MODE),auto)
@@ -40,12 +45,16 @@ endif
 
 all: build
 
-build:
+# Only invoke cargo when the binaries are missing or out of date. This way
+# `sudo make install` does not need cargo on PATH (build first as the user).
+build: $(RELEASE_BINS)
+
+$(RELEASE_BINS): $(SRC_FILES) Cargo.toml Cargo.lock
 	$(CARGO) build $(CARGO_FLAGS) $(FEATURES)
 
 install: install-bin install-resources
 
-install-bin: build
+install-bin: $(RELEASE_BINS)
 	install -Dm755 target/release/bakawm $(DESTDIR)$(BINDIR)/bakawm
 	install -Dm755 target/release/bakawm-ctl $(DESTDIR)$(BINDIR)/bakawm-ctl
 

@@ -74,7 +74,10 @@ impl DisplayConfig {
             let mut properties = HashMap::new();
             properties.insert(
                 String::from("display-name"),
-                OwnedValue::from(zvariant::Str::from(make_display_name(output, is_laptop_panel))),
+                OwnedValue::from(zvariant::Str::from(make_display_name(
+                    output,
+                    is_laptop_panel,
+                ))),
             );
             properties.insert(
                 String::from("is-builtin"),
@@ -92,10 +95,8 @@ impl DisplayConfig {
                         let is_current = m.id == logical.current_mode_id;
 
                         let mut mode_properties = HashMap::new();
-                        mode_properties.insert(
-                            String::from("is-current"),
-                            OwnedValue::from(is_current),
-                        );
+                        mode_properties
+                            .insert(String::from("is-current"), OwnedValue::from(is_current));
 
                         Mode {
                             id: format!("{width}x{height}@{refresh_rate:.3}"),

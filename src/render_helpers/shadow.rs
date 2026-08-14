@@ -11,7 +11,7 @@ use smithay::utils::{Buffer, Logical, Physical, Point, Rectangle, Scale, Size, T
 use crate::config::CornerRadius;
 
 use super::shader_element::ShaderRenderElement;
-use super::shaders::{mat3_uniform, ProgramType, Shaders};
+use super::shaders::{ProgramType, Shaders, mat3_uniform};
 
 #[derive(Debug, Clone)]
 pub struct ShadowRenderElement {
@@ -174,7 +174,9 @@ impl ShadowRenderElement {
     }
 
     pub fn has_shader(renderer: &mut GlesRenderer) -> bool {
-        Shaders::get(renderer).program(ProgramType::Shadow).is_some()
+        Shaders::get(renderer)
+            .program(ProgramType::Shadow)
+            .is_some()
     }
 }
 

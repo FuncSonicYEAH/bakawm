@@ -7,25 +7,26 @@
     allow(dead_code, unused_imports)
 )]
 
-pub mod config;
-pub mod ipc;
 pub mod animation;
+pub mod config;
 #[cfg(any(feature = "udev", feature = "xwayland"))]
 pub mod cursor;
+#[cfg(feature = "xdp-gnome-screencast")]
+pub mod dbus;
 pub mod drawing;
 pub mod focus;
 pub mod input_handler;
+pub mod ipc;
+pub mod layout;
 #[cfg(feature = "libei")]
 pub mod libei;
 #[cfg(feature = "xdp-gnome-screencast")]
 pub mod protocols;
 pub mod render;
 pub mod render_helpers;
-pub mod screencopy;
 #[cfg(feature = "xdp-gnome-screencast")]
 pub mod screencasting;
-#[cfg(feature = "xdp-gnome-screencast")]
-pub mod dbus;
+pub mod screencopy;
 pub mod shell;
 pub mod state;
 #[cfg(feature = "udev")]

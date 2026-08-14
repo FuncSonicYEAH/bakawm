@@ -20,9 +20,8 @@ impl ServiceChannel {
             ));
         }
 
-        let (sock1, sock2) = UnixStream::pair().map_err(|e| {
-            fdo::Error::Failed(format!("failed to create socket pair: {e}"))
-        })?;
+        let (sock1, sock2) = UnixStream::pair()
+            .map_err(|e| fdo::Error::Failed(format!("failed to create socket pair: {e}")))?;
 
         if let Err(err) = self.to_state.send(sock2) {
             tracing::warn!("error sending service channel client to state: {err:?}");

@@ -21,8 +21,9 @@ use smithay::{
     input::{
         dnd::{DndFocus, OfferData, Source},
         pointer::{
-            GestureHoldBeginEvent, GestureHoldEndEvent, GesturePinchBeginEvent, GesturePinchEndEvent,
-            GesturePinchUpdateEvent, GestureSwipeBeginEvent, GestureSwipeEndEvent, GestureSwipeUpdateEvent,
+            GestureHoldBeginEvent, GestureHoldEndEvent, GesturePinchBeginEvent,
+            GesturePinchEndEvent, GesturePinchUpdateEvent, GestureSwipeBeginEvent,
+            GestureSwipeEndEvent, GestureSwipeUpdateEvent,
         },
         touch::{FrameMarker, TouchTarget},
     },
@@ -84,7 +85,9 @@ impl From<PointerFocusTarget> for WlSurface {
 }
 
 impl KeyboardFocusTarget {
-    fn inner_keyboard_target<BackendData: Backend>(&self) -> &dyn KeyboardTarget<AnvilState<BackendData>> {
+    fn inner_keyboard_target<BackendData: Backend>(
+        &self,
+    ) -> &dyn KeyboardTarget<AnvilState<BackendData>> {
         match self {
             Self::Window(w) => match w.underlying_surface() {
                 WindowSurface::Wayland(w) => w.wl_surface(),
@@ -98,7 +101,9 @@ impl KeyboardFocusTarget {
 }
 
 impl PointerFocusTarget {
-    fn inner_pointer_target<BackendData: Backend>(&self) -> &dyn PointerTarget<AnvilState<BackendData>> {
+    fn inner_pointer_target<BackendData: Backend>(
+        &self,
+    ) -> &dyn PointerTarget<AnvilState<BackendData>> {
         match self {
             Self::WlSurface(w) => w,
             #[cfg(feature = "xwayland")]
@@ -107,7 +112,9 @@ impl PointerFocusTarget {
         }
     }
 
-    fn inner_touch_target<BackendData: Backend>(&self) -> &dyn TouchTarget<AnvilState<BackendData>> {
+    fn inner_touch_target<BackendData: Backend>(
+        &self,
+    ) -> &dyn TouchTarget<AnvilState<BackendData>> {
         match self {
             Self::WlSurface(w) => w,
             #[cfg(feature = "xwayland")]
@@ -140,7 +147,8 @@ impl<BackendData: Backend> PointerTarget<AnvilState<BackendData>> for PointerFoc
         data: &mut AnvilState<BackendData>,
         event: &RelativeMotionEvent,
     ) {
-        self.inner_pointer_target().relative_motion(seat, data, event)
+        self.inner_pointer_target()
+            .relative_motion(seat, data, event)
     }
     fn button(
         &self,
@@ -176,7 +184,8 @@ impl<BackendData: Backend> PointerTarget<AnvilState<BackendData>> for PointerFoc
         data: &mut AnvilState<BackendData>,
         event: &GestureSwipeBeginEvent,
     ) {
-        self.inner_pointer_target().gesture_swipe_begin(seat, data, event)
+        self.inner_pointer_target()
+            .gesture_swipe_begin(seat, data, event)
     }
     fn gesture_swipe_update(
         &self,
@@ -193,7 +202,8 @@ impl<BackendData: Backend> PointerTarget<AnvilState<BackendData>> for PointerFoc
         data: &mut AnvilState<BackendData>,
         event: &GestureSwipeEndEvent,
     ) {
-        self.inner_pointer_target().gesture_swipe_end(seat, data, event)
+        self.inner_pointer_target()
+            .gesture_swipe_end(seat, data, event)
     }
     fn gesture_pinch_begin(
         &self,
@@ -201,7 +211,8 @@ impl<BackendData: Backend> PointerTarget<AnvilState<BackendData>> for PointerFoc
         data: &mut AnvilState<BackendData>,
         event: &GesturePinchBeginEvent,
     ) {
-        self.inner_pointer_target().gesture_pinch_begin(seat, data, event)
+        self.inner_pointer_target()
+            .gesture_pinch_begin(seat, data, event)
     }
     fn gesture_pinch_update(
         &self,
@@ -218,7 +229,8 @@ impl<BackendData: Backend> PointerTarget<AnvilState<BackendData>> for PointerFoc
         data: &mut AnvilState<BackendData>,
         event: &GesturePinchEndEvent,
     ) {
-        self.inner_pointer_target().gesture_pinch_end(seat, data, event)
+        self.inner_pointer_target()
+            .gesture_pinch_end(seat, data, event)
     }
     fn gesture_hold_begin(
         &self,
@@ -226,7 +238,8 @@ impl<BackendData: Backend> PointerTarget<AnvilState<BackendData>> for PointerFoc
         data: &mut AnvilState<BackendData>,
         event: &GestureHoldBeginEvent,
     ) {
-        self.inner_pointer_target().gesture_hold_begin(seat, data, event)
+        self.inner_pointer_target()
+            .gesture_hold_begin(seat, data, event)
     }
     fn gesture_hold_end(
         &self,
@@ -234,7 +247,8 @@ impl<BackendData: Backend> PointerTarget<AnvilState<BackendData>> for PointerFoc
         data: &mut AnvilState<BackendData>,
         event: &GestureHoldEndEvent,
     ) {
-        self.inner_pointer_target().gesture_hold_end(seat, data, event)
+        self.inner_pointer_target()
+            .gesture_hold_end(seat, data, event)
     }
 }
 
@@ -443,7 +457,8 @@ impl<BackendData: Backend> DndFocus<AnvilState<BackendData>> for PointerFocusTar
             }
             #[cfg(feature = "xwayland")]
             PointerFocusTarget::X11Surface(surface) => {
-                DndFocus::enter(surface, data, dh, source, seat, location, serial).map(AnvilOfferData::X11)
+                DndFocus::enter(surface, data, dh, source, seat, location, serial)
+                    .map(AnvilOfferData::X11)
             }
             _ => None,
         }
@@ -603,7 +618,9 @@ impl From<KeyboardFocusTarget> for PointerFocusTarget {
                 #[cfg(feature = "xwayland")]
                 WindowSurface::X11(s) => PointerFocusTarget::from(s),
             },
-            KeyboardFocusTarget::LayerSurface(surface) => PointerFocusTarget::from(surface.wl_surface()),
+            KeyboardFocusTarget::LayerSurface(surface) => {
+                PointerFocusTarget::from(surface.wl_surface())
+            }
             KeyboardFocusTarget::Popup(popup) => PointerFocusTarget::from(popup.wl_surface()),
         }
     }

@@ -17,9 +17,7 @@ impl Curve {
             Curve::EaseOutQuad => ease_out_quad(x),
             Curve::EaseOutCubic => ease_out_cubic(x),
             Curve::EaseOutExpo => ease_out_expo(x),
-            Curve::CubicBezier { x1, y1, x2, y2 } => {
-                CubicBezier::new(x1, y1, x2, y2).y(x)
-            }
+            Curve::CubicBezier { x1, y1, x2, y2 } => CubicBezier::new(x1, y1, x2, y2).y(x),
         }
     }
 }

@@ -24,7 +24,11 @@ impl Cursor {
             .or_else(|| std::env::var("XCURSOR_THEME").ok())
             .unwrap_or_else(|| "default".into());
         let size = size_override
-            .or_else(|| std::env::var("XCURSOR_SIZE").ok().and_then(|s| s.parse().ok()))
+            .or_else(|| {
+                std::env::var("XCURSOR_SIZE")
+                    .ok()
+                    .and_then(|s| s.parse().ok())
+            })
             .unwrap_or(24);
 
         let theme = CursorTheme::load(&name);
@@ -59,9 +63,9 @@ fn nearest_images(size: u32, images: &[Image]) -> impl Iterator<Item = &Image> {
         .min_by_key(|image| (size as i32 - image.size as i32).abs())
         .unwrap();
 
-    images
-        .iter()
-        .filter(move |image| image.width == nearest_image.width && image.height == nearest_image.height)
+    images.iter().filter(move |image| {
+        image.width == nearest_image.width && image.height == nearest_image.height
+    })
 }
 
 fn frame(mut millis: u32, size: u32, images: &[Image]) -> Image {

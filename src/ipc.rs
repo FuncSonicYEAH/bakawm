@@ -288,18 +288,15 @@ fn handle_connection(mut stream: UnixStream, to_state: calloop::channel::Sender<
 // ---------------------------------------------------------------------------
 
 /// Send a single request to the running compositor and read the response.
-pub fn send_request(
-    request: &IpcRequest,
-) -> Result<(IpcResponse, Option<Vec<u8>>), String> {
+pub fn send_request(request: &IpcRequest) -> Result<(IpcResponse, Option<Vec<u8>>), String> {
     let path = socket_path();
-    let mut stream =
-        UnixStream::connect(&path).map_err(|e| {
-            format!(
-                "Failed to connect to bakawm IPC socket ({}): {}",
-                path.display(),
-                e
-            )
-        })?;
+    let mut stream = UnixStream::connect(&path).map_err(|e| {
+        format!(
+            "Failed to connect to bakawm IPC socket ({}): {}",
+            path.display(),
+            e
+        )
+    })?;
 
     write_request(&mut stream, request).map_err(|e| format!("Failed to send request: {e}"))?;
 

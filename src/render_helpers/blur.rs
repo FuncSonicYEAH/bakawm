@@ -2,9 +2,9 @@ use std::cmp::max;
 use std::iter::{once, zip};
 use std::rc::Rc;
 
-use anyhow::{ensure, Context as _};
+use anyhow::{Context as _, ensure};
 use smithay::backend::allocator::Fourcc;
-use smithay::backend::renderer::gles::{ffi, link_program, GlesError, GlesRenderer, GlesTexture};
+use smithay::backend::renderer::gles::{GlesError, GlesRenderer, GlesTexture, ffi, link_program};
 use smithay::backend::renderer::{ContextId, Renderer as _, Texture as _};
 use smithay::gpu_span_location;
 use smithay::utils::{Buffer, Size};

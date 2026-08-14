@@ -11,7 +11,7 @@ use smithay::utils::{Buffer, Logical, Physical, Point, Rectangle, Scale, Size, T
 
 use crate::config::CornerRadius;
 
-use super::shaders::{mat3_uniform, Shaders};
+use super::shaders::{Shaders, mat3_uniform};
 
 #[derive(Debug)]
 pub struct ClippedSurfaceRenderElement {
@@ -73,7 +73,8 @@ impl ClippedSurfaceRenderElement {
             Mat3::IDENTITY
         };
 
-        let input_to_geo = transform_matrix * Mat3::from_scale(elem_geo_size / geo_size)
+        let input_to_geo = transform_matrix
+            * Mat3::from_scale(elem_geo_size / geo_size)
             * Mat3::from_translation((elem_geo_loc - geo_loc) / elem_geo_size)
             * Mat3::from_scale(buf_size / src_size)
             * Mat3::from_translation(-src_loc / buf_size)

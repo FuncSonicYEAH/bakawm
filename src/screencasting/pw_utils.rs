@@ -10,17 +10,17 @@ use std::time::Duration;
 use std::{mem, slice};
 
 use anyhow::Context;
-use calloop::timer::{TimeoutAction, Timer};
 use calloop::RegistrationToken;
+use calloop::timer::{TimeoutAction, Timer};
 use pipewire::context::ContextRc;
 use pipewire::core::{CoreRc, PW_ID_CORE};
 use pipewire::main_loop::MainLoopRc;
 use pipewire::properties::PropertiesBox;
 use pipewire::spa::buffer::DataType;
+use pipewire::spa::param::ParamType;
 use pipewire::spa::param::format::{FormatProperties, MediaSubtype, MediaType};
 use pipewire::spa::param::format_utils::parse_format;
 use pipewire::spa::param::video::{VideoFormat, VideoInfoRaw};
-use pipewire::spa::param::ParamType;
 use pipewire::spa::pod::deserialize::PodDeserializer;
 use pipewire::spa::pod::serialize::PodSerializer;
 use pipewire::spa::pod::{self, ChoiceValue, Pod, PodPropFlags, Property, PropertyFlags};
@@ -36,12 +36,12 @@ use smithay::backend::allocator::format::FormatSet;
 use smithay::backend::allocator::gbm::{GbmBuffer, GbmBufferFlags, GbmDevice};
 use smithay::backend::allocator::{Format, Fourcc};
 use smithay::backend::drm::DrmDeviceFd;
+use smithay::backend::renderer::ExportMem;
 use smithay::backend::renderer::damage::OutputDamageTracker;
 use smithay::backend::renderer::element::utils::{Relocate, RelocateRenderElement};
 use smithay::backend::renderer::element::{Element, RenderElement};
 use smithay::backend::renderer::gles::GlesRenderer;
 use smithay::backend::renderer::sync::SyncPoint;
-use smithay::backend::renderer::ExportMem;
 use smithay::output::{Output, OutputModeSource};
 use smithay::reexports::calloop::generic::Generic;
 use smithay::reexports::calloop::{Interest, LoopHandle, Mode, PostAction};
@@ -843,11 +843,7 @@ impl Cast {
         }
 
         if target_frame_time < last {
-            warn!(
-                ?target_frame_time,
-                ?last,
-                "target frame time is below last"
-            );
+            warn!(?target_frame_time, ?last, "target frame time is below last");
             return Duration::ZERO;
         }
 
@@ -901,7 +897,10 @@ impl Cast {
     fn dequeue_available_buffer(&mut self) -> Option<NonNull<pw_buffer>> {
         let buf = unsafe { NonNull::new(self.stream.dequeue_raw_buffer()) };
         if buf.is_none() {
-            tracing::warn!("dequeue_available_buffer: no buffer available, stream state={:?}", self.stream.state());
+            tracing::warn!(
+                "dequeue_available_buffer: no buffer available, stream state={:?}",
+                self.stream.state()
+            );
         }
         buf
     }
@@ -923,7 +922,10 @@ impl Cast {
             }
         }
         if count > 0 {
-            tracing::trace!("queue_completed_buffers: queued {count} buffers, remaining={}", inner.rendering_buffers.len());
+            tracing::trace!(
+                "queue_completed_buffers: queued {count} buffers, remaining={}",
+                inner.rendering_buffers.len()
+            );
         }
     }
 
@@ -937,7 +939,9 @@ impl Cast {
                 Some(sync_fd)
             }
             None => {
-                tracing::debug!("queue_after_sync: cannot export sync fd, using signaled sync point");
+                tracing::debug!(
+                    "queue_after_sync: cannot export sync fd, using signaled sync point"
+                );
                 sync_point = SyncPoint::signaled();
                 None
             }
@@ -977,7 +981,11 @@ impl Cast {
         size: Size<i32, Physical>,
         scale: Scale<f64>,
     ) -> bool {
-        tracing::trace!("dequeue_buffer_and_render called, elements={}, size={:?}", elements.len(), size);
+        tracing::trace!(
+            "dequeue_buffer_and_render called, elements={}, size={:?}",
+            elements.len(),
+            size
+        );
         let mut inner = self.inner.borrow_mut();
 
         let CastState::Ready {
@@ -1019,7 +1027,11 @@ impl Cast {
             elements = &elements[cursor_data.elem_count..];
         }
         let (damage, states) = damage_tracker.damage_output(1, elements).unwrap();
-        tracing::trace!("damage_output result: damage={:?}, elements_count={}", damage.is_some(), elements.len());
+        tracing::trace!(
+            "damage_output result: damage={:?}, elements_count={}",
+            damage.is_some(),
+            elements.len()
+        );
 
         if self.cursor_mode == CursorMode::Metadata {
             let (damage, _states) = cursor_damage_tracker
@@ -1071,7 +1083,10 @@ impl Cast {
 
             match res {
                 Ok(sync_point) => {
-                    tracing::trace!("rendered frame to dmabuf successfully, seq={}", self.sequence_counter);
+                    tracing::trace!(
+                        "rendered frame to dmabuf successfully, seq={}",
+                        self.sequence_counter
+                    );
                     mark_buffer_as_good(pw_buffer, &mut self.sequence_counter);
                     self.queue_after_sync(pw_buffer, sync_point);
                     true
@@ -1334,7 +1349,9 @@ unsafe fn mark_buffer_as_good(pw_buffer: NonNull<pw_buffer>, sequence: &mut u64)
 
 unsafe fn find_meta_header(buffer: *mut spa_buffer) -> Option<NonNull<spa_meta_header>> {
     unsafe {
-        let p = spa_buffer_find_meta_data(buffer, SPA_META_Header, mem::size_of::<spa_meta_header>()).cast();
+        let p =
+            spa_buffer_find_meta_data(buffer, SPA_META_Header, mem::size_of::<spa_meta_header>())
+                .cast();
         NonNull::new(p)
     }
 }

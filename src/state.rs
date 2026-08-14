@@ -12,7 +12,8 @@ use smithay::{
     backend::{
         input::{Keycode, TabletToolDescriptor},
         renderer::element::{
-            RenderElementStates, default_primary_scanout_output_compare, utils::select_dmabuf_feedback,
+            RenderElementStates, default_primary_scanout_output_compare,
+            utils::select_dmabuf_feedback,
         },
     },
     delegate_dispatch2,
@@ -35,7 +36,8 @@ use smithay::{
     reexports::{
         calloop::{Interest, LoopHandle, Mode, PostAction, generic::Generic},
         wayland_protocols::xdg::decoration::{
-            self as xdg_decoration, zv1::server::zxdg_toplevel_decoration_v1::Mode as DecorationMode,
+            self as xdg_decoration,
+            zv1::server::zxdg_toplevel_decoration_v1::Mode as DecorationMode,
         },
         wayland_server::{
             Client, Display, DisplayHandle, Resource,
@@ -47,35 +49,48 @@ use smithay::{
     wayland::{
         background_effect::{self, BackgroundEffectState, ExtBackgroundEffectHandler},
         commit_timing::{CommitTimerBarrierStateUserData, CommitTimingManagerState},
-        compositor::{CompositorClientState, CompositorHandler, CompositorState, get_parent, with_states},
+        compositor::{
+            CompositorClientState, CompositorHandler, CompositorState, get_parent, with_states,
+        },
         dmabuf::DmabufFeedback,
         fifo::{FifoBarrierCachedState, FifoManagerState},
         fixes::FixesState,
-        fractional_scale::{FractionalScaleHandler, FractionalScaleManagerState, with_fractional_scale},
+        fractional_scale::{
+            FractionalScaleHandler, FractionalScaleManagerState, with_fractional_scale,
+        },
         image_capture_source::{
             ImageCaptureSource, ImageCaptureSourceHandler, ImageCaptureSourceState,
             OutputCaptureSourceHandler, OutputCaptureSourceState,
         },
         image_copy_capture::{
-            BufferConstraints, Frame, ImageCopyCaptureHandler, ImageCopyCaptureState, Session, SessionRef,
+            BufferConstraints, Frame, ImageCopyCaptureHandler, ImageCopyCaptureState, Session,
+            SessionRef,
         },
         input_method::{InputMethodHandler, InputMethodManagerState, PopupSurface},
         keyboard_shortcuts_inhibit::{
-            KeyboardShortcutsInhibitHandler, KeyboardShortcutsInhibitState, KeyboardShortcutsInhibitor,
+            KeyboardShortcutsInhibitHandler, KeyboardShortcutsInhibitState,
+            KeyboardShortcutsInhibitor,
         },
         output::{OutputHandler, OutputManagerState},
-        pointer_constraints::{PointerConstraintsHandler, PointerConstraintsState, with_pointer_constraint},
+        pointer_constraints::{
+            PointerConstraintsHandler, PointerConstraintsState, with_pointer_constraint,
+        },
         pointer_gestures::PointerGesturesState,
         presentation::PresentationState,
         relative_pointer::RelativePointerManagerState,
         seat::WaylandFocus,
         security_context::{
-            SecurityContext, SecurityContextHandler, SecurityContextListenerSource, SecurityContextState,
+            SecurityContext, SecurityContextHandler, SecurityContextListenerSource,
+            SecurityContextState,
         },
         selection::{
             SelectionHandler,
-            data_device::{DataDeviceHandler, DataDeviceState, WaylandDndGrabHandler, set_data_device_focus},
-            primary_selection::{PrimarySelectionHandler, PrimarySelectionState, set_primary_focus},
+            data_device::{
+                DataDeviceHandler, DataDeviceState, WaylandDndGrabHandler, set_data_device_focus,
+            },
+            primary_selection::{
+                PrimarySelectionHandler, PrimarySelectionState, set_primary_focus,
+            },
             wlr_data_control::{DataControlHandler, DataControlState},
         },
         shell::{
@@ -203,18 +218,25 @@ pub struct AnvilState<BackendData: Backend + 'static> {
 
     pub config: crate::config::Config,
 
+    /// Tiling layout engine.
+    pub layout: crate::layout::Layout,
+
     /// Lua runtime state with callback functions for `BindAction::Callback`.
     pub lua_config: Option<Box<crate::config::LuaConfig>>,
 
     /// Windows currently playing their close animation.
     pub closing_windows: Vec<crate::shell::closing_window::ClosingWindow>,
 
+    /// Active workspace index per output (keyed by output name).
+    pub workspaces: std::collections::HashMap<String, u32>,
+
     #[cfg(feature = "xdp-gnome-screencast")]
     pub screencasting: crate::screencasting::Screencasting,
     #[cfg(feature = "xdp-gnome-screencast")]
     pub dbus: Option<crate::dbus::DBusServers>,
     #[cfg(feature = "xdp-gnome-screencast")]
-    pub mutter_x11_interop_state: crate::protocols::mutter_x11_interop::MutterX11InteropManagerState,
+    pub mutter_x11_interop_state:
+        crate::protocols::mutter_x11_interop::MutterX11InteropManagerState,
 
     pub config_watcher: Option<ConfigWatcher>,
     pub config_reload_timer: Option<std::time::Instant>,
@@ -288,7 +310,12 @@ impl<BackendData: Backend> SelectionHandler for AnvilState<BackendData> {
     type SelectionUserData = ();
 
     #[cfg(feature = "xwayland")]
-    fn new_selection(&mut self, ty: SelectionTarget, source: Option<SelectionSource>, _seat: Seat<Self>) {
+    fn new_selection(
+        &mut self,
+        ty: SelectionTarget,
+        source: Option<SelectionSource>,
+        _seat: Seat<Self>,
+    ) {
         if let Some(xwm) = self.xwm.as_mut() {
             if let Err(err) = xwm.new_selection(ty, source.map(|source| source.mime_types())) {
                 warn!(?err, ?ty, "Failed to set Xwayland selection");
@@ -385,7 +412,9 @@ impl<BackendData: Backend> InputMethodHandler for AnvilState<BackendData> {
     fn parent_geometry(&self, parent: &WlSurface) -> Rectangle<i32, smithay::utils::Logical> {
         self.space
             .elements()
-            .find_map(|window| (window.wl_surface().as_deref() == Some(parent)).then(|| window.geometry()))
+            .find_map(|window| {
+                (window.wl_surface().as_deref() == Some(parent)).then(|| window.geometry())
+            })
             .unwrap_or_default()
     }
 }
@@ -421,7 +450,8 @@ impl<BackendData: Backend> PointerConstraintsHandler for AnvilState<BackendData>
                     .space
                     .elements()
                     .find_map(|window| {
-                        (window.wl_surface().as_deref() == Some(hint_surface)).then(|| window.geometry())
+                        (window.wl_surface().as_deref() == Some(hint_surface))
+                            .then(|| window.geometry())
                     })
                     .unwrap_or_default()
                     .loc
@@ -480,6 +510,8 @@ impl<BackendData: Backend> XdgActivationHandler for AnvilState<BackendData> {
                 .cloned();
             if let Some(window) = w {
                 self.space.raise_element(&window, true);
+                // Re-run the layout so the view can pan to the activated window.
+                self.arrange_layout();
             }
         }
     }
@@ -563,8 +595,9 @@ impl<BackendData: Backend> FractionalScaleHandler for AnvilState<BackendData> {
                             })
                         })
                     } else {
-                        self.window_for_surface(&root)
-                            .and_then(|window| self.space.outputs_for_element(&window).first().cloned())
+                        self.window_for_surface(&root).and_then(|window| {
+                            self.space.outputs_for_element(&window).first().cloned()
+                        })
                     }
                 })
                 .or_else(|| self.space.outputs().next().cloned());
@@ -578,7 +611,11 @@ impl<BackendData: Backend> FractionalScaleHandler for AnvilState<BackendData> {
 }
 
 impl<BackendData: Backend + 'static> SecurityContextHandler for AnvilState<BackendData> {
-    fn context_created(&mut self, source: SecurityContextListenerSource, security_context: SecurityContext) {
+    fn context_created(
+        &mut self,
+        source: SecurityContextListenerSource,
+        security_context: SecurityContext,
+    ) {
         self.handle
             .insert_source(source, move |client_stream, _, data| {
                 let client_state = ClientState {
@@ -689,7 +726,10 @@ delegate_dispatch2!(@<BackendData: Backend + 'static> AnvilState<BackendData>);
 crate::delegate_screencopy!(@<BackendData: Backend + 'static> AnvilState<BackendData>);
 
 #[cfg(feature = "xdp-gnome-screencast")]
-impl<BackendData: Backend + 'static> crate::protocols::mutter_x11_interop::MutterX11InteropHandler for AnvilState<BackendData> {}
+impl<BackendData: Backend + 'static> crate::protocols::mutter_x11_interop::MutterX11InteropHandler
+    for AnvilState<BackendData>
+{
+}
 #[cfg(feature = "xdp-gnome-screencast")]
 crate::delegate_mutter_x11_interop!(@<BackendData: Backend + 'static> AnvilState<BackendData>);
 
@@ -707,7 +747,9 @@ impl<BackendData: Backend + 'static> AnvilState<BackendData> {
         let mut config = crate::config::load_config();
         let lua_config = config.lua_config.take();
         for (k, v) in &config.env {
-            unsafe { std::env::set_var(k, v); }
+            unsafe {
+                std::env::set_var(k, v);
+            }
         }
 
         // init wayland clients
@@ -791,7 +833,10 @@ impl<BackendData: Backend + 'static> AnvilState<BackendData> {
 
         #[cfg(feature = "xdp-gnome-screencast")]
         let mutter_x11_interop_state =
-            crate::protocols::mutter_x11_interop::MutterX11InteropManagerState::new::<Self, _>(&dh, move |_| true);
+            crate::protocols::mutter_x11_interop::MutterX11InteropManagerState::new::<Self, _>(
+                &dh,
+                move |_| true,
+            );
 
         // init input
         let seat_name = backend_data.seat_name();
@@ -861,8 +906,10 @@ impl<BackendData: Backend + 'static> AnvilState<BackendData> {
             renderdoc: renderdoc::RenderDoc::new().ok(),
             show_window_preview: false,
             config,
+            layout: crate::layout::Layout::default(),
             lua_config,
             closing_windows: Vec::new(),
+            workspaces: std::collections::HashMap::new(),
             #[cfg(feature = "xdp-gnome-screencast")]
             screencasting: crate::screencasting::Screencasting::new_stub(),
             #[cfg(feature = "xdp-gnome-screencast")]
@@ -906,9 +953,13 @@ impl<BackendData: Backend + 'static> AnvilState<BackendData> {
                         .unwrap_or(1.);
                     data.client_compositor_state(&client)
                         .set_client_scale(xwayland_scale);
-                    let mut wm =
-                        X11Wm::start_wm(data.handle.clone(), &display_handle, x11_socket, client.clone())
-                            .expect("Failed to attach X11 Window Manager");
+                    let mut wm = X11Wm::start_wm(
+                        data.handle.clone(),
+                        &display_handle,
+                        x11_socket,
+                        client.clone(),
+                    )
+                    .expect("Failed to attach X11 Window Manager");
 
                     let cursor_theme = data.config.cursor.theme.as_deref();
                     let cursor_size = data.config.cursor.size;
@@ -928,7 +979,10 @@ impl<BackendData: Backend + 'static> AnvilState<BackendData> {
                 }
             });
         if let Err(e) = ret {
-            tracing::error!("Failed to insert the XWaylandSource into the event loop: {}", e);
+            tracing::error!(
+                "Failed to insert the XWaylandSource into the event loop: {}",
+                e
+            );
         }
     }
 
@@ -947,9 +1001,7 @@ impl<BackendData: Backend + 'static> AnvilState<BackendData> {
                 None::<(String, String)>,
             );
 
-        let env_pairs: Vec<(String, String)> = env_iter
-            .map(|(k, v)| (k.to_string(), v))
-            .collect();
+        let env_pairs: Vec<(String, String)> = env_iter.map(|(k, v)| (k.to_string(), v)).collect();
 
         for cmd in &self.config.init_commands {
             info!(cmd, "Running init command");
@@ -995,6 +1047,9 @@ impl<BackendData: Backend + 'static> AnvilState<BackendData> {
         self.space.elements().for_each(|window| {
             window.apply_config(&self.config);
         });
+
+        // Re-tile windows if the layout config changed.
+        self.arrange_layout();
     }
 
     pub fn update_border_focus(&mut self, target: Option<&KeyboardFocusTarget>) {
@@ -1009,16 +1064,21 @@ impl<BackendData: Backend + 'static> AnvilState<BackendData> {
         let border_width = self.config.window.border.width;
 
         self.space.elements().for_each(|window| {
-            let is_focused = focused_surface.as_ref().is_some_and(|fs| {
-                window.wl_surface().is_some_and(|ws| fs == &ws)
-            });
+            let is_focused = focused_surface
+                .as_ref()
+                .is_some_and(|fs| window.wl_surface().is_some_and(|ws| fs == &ws));
             let geo = smithay::desktop::space::SpaceElement::geometry(&window.0);
             let mut ws = window.decoration_state();
-            ws.border.set_active(is_focused, geo.size.w, geo.size.h, border_width);
+            // Skip fully-hidden (inactive workspace) windows.
+            if ws.hidden && ws.fade_anim.is_none() {
+                return;
+            }
+            ws.border
+                .set_active(is_focused, geo.size.w, geo.size.h, border_width);
         });
     }
 
-    /// Check if there are any active animations (open or close).
+    /// Check if there are any active animations (open, close, or layout).
     pub fn has_active_animations(&self) -> bool {
         if !self.closing_windows.is_empty() {
             return true;
@@ -1027,6 +1087,21 @@ impl<BackendData: Backend + 'static> AnvilState<BackendData> {
         for window in self.space.elements() {
             let state = window.decoration_state();
             if state.open_animation.is_some() {
+                return true;
+            }
+            if state
+                .fade_anim
+                .as_ref()
+                .is_some_and(|anim| !anim.is_done())
+            {
+                return true;
+            }
+            if state
+                .layout
+                .move_anim
+                .as_ref()
+                .is_some_and(|(_, anim)| !anim.is_done())
+            {
                 return true;
             }
         }
@@ -1063,7 +1138,6 @@ impl<BackendData: Backend + 'static> AnvilState<BackendData> {
         renderer: &mut smithay::backend::renderer::gles::GlesRenderer,
         output: &Output,
     ) -> bool {
-
         let animations_config = &config.animations;
         if !animations_config.enable || !animations_config.window_close.enable {
             tracing::debug!("close animation disabled, skipping");
@@ -1071,15 +1145,14 @@ impl<BackendData: Backend + 'static> AnvilState<BackendData> {
         }
 
         // Capture the snapshot first
-        let snapshot = match Self::capture_close_snapshot(space, config, window, renderer, Some(output)) {
-            Some(s) => s,
-            None => return false,
-        };
+        let snapshot =
+            match Self::capture_close_snapshot(space, config, window, renderer, Some(output)) {
+                Some(s) => s,
+                None => return false,
+            };
 
         // Then start animation from snapshot
-        Self::start_close_animation_from_snapshot(
-            closing_windows, config, snapshot,
-        )
+        Self::start_close_animation_from_snapshot(closing_windows, config, snapshot)
     }
 
     /// Capture a window's contents as a texture snapshot for close animation.
@@ -1094,11 +1167,11 @@ impl<BackendData: Backend + 'static> AnvilState<BackendData> {
         renderer: &mut smithay::backend::renderer::gles::GlesRenderer,
         output: Option<&Output>,
     ) -> Option<crate::shell::ssd::PendingCloseSnapshot> {
+        use crate::render_helpers::texture::TextureBuffer;
+        use smithay::backend::allocator::Fourcc;
         use smithay::backend::renderer::element::{AsRenderElements, Element, RenderElement};
         use smithay::backend::renderer::gles::{GlesRenderer, GlesTexture};
         use smithay::backend::renderer::{Bind, Frame, Offscreen, Renderer};
-        use smithay::backend::allocator::Fourcc;
-        use crate::render_helpers::texture::TextureBuffer;
 
         // Get window geometry and position
         let win_geo = match space.element_geometry(window) {
@@ -1123,7 +1196,7 @@ impl<BackendData: Backend + 'static> AnvilState<BackendData> {
                         return None;
                     }
                 }
-            },
+            }
         };
 
         let output_scale = output.current_scale().fractional_scale();
@@ -1156,9 +1229,11 @@ impl<BackendData: Backend + 'static> AnvilState<BackendData> {
             .iter()
             .map(|e| smithay::backend::renderer::element::Element::geometry(e, scale))
             .reduce(|a, b| a.merge(b))
-            .unwrap_or_else(|| smithay::utils::Rectangle::from_size(
-                (win_geo.size.w as i32, win_geo.size.h as i32).into()
-            ));
+            .unwrap_or_else(|| {
+                smithay::utils::Rectangle::from_size(
+                    (win_geo.size.w as i32, win_geo.size.h as i32).into(),
+                )
+            });
 
         // If the encompassing geometry has zero area, the window content is gone
         if encompassing_geo.size.w == 0 || encompassing_geo.size.h == 0 {
@@ -1178,7 +1253,10 @@ impl<BackendData: Backend + 'static> AnvilState<BackendData> {
         ) {
             Ok(t) => t,
             Err(e) => {
-                warn!("Failed to create offscreen texture for close animation: {:?}", e);
+                warn!(
+                    "Failed to create offscreen texture for close animation: {:?}",
+                    e
+                );
                 return None;
             }
         };
@@ -1187,16 +1265,21 @@ impl<BackendData: Backend + 'static> AnvilState<BackendData> {
         let texture_clone = texture.clone();
         let mut texture_mut = texture;
 
-        let mut target = match <GlesRenderer as Bind<GlesTexture>>::bind(renderer, &mut texture_mut) {
+        let mut target = match <GlesRenderer as Bind<GlesTexture>>::bind(renderer, &mut texture_mut)
+        {
             Ok(t) => t,
             Err(e) => {
-                warn!("Failed to bind offscreen texture for close animation: {:?}", e);
+                warn!(
+                    "Failed to bind offscreen texture for close animation: {:?}",
+                    e
+                );
                 return None;
             }
         };
 
         let output_transform = transform.invert();
-        let output_rect = smithay::utils::Rectangle::from_size(output_transform.transform_size(buffer_size));
+        let output_rect =
+            smithay::utils::Rectangle::from_size(output_transform.transform_size(buffer_size));
 
         let mut frame = match renderer.render(&mut target, buffer_size, output_transform) {
             Ok(f) => f,
@@ -1206,7 +1289,10 @@ impl<BackendData: Backend + 'static> AnvilState<BackendData> {
             }
         };
 
-        if let Err(e) = frame.clear(smithay::backend::renderer::Color32F::TRANSPARENT, &[output_rect]) {
+        if let Err(e) = frame.clear(
+            smithay::backend::renderer::Color32F::TRANSPARENT,
+            &[output_rect],
+        ) {
             warn!("Failed to clear frame for close animation: {:?}", e);
             return None;
         }
@@ -1221,7 +1307,15 @@ impl<BackendData: Backend + 'static> AnvilState<BackendData> {
             // Without this offset, elements positioned far from the output origin
             // would be clipped by the texture boundary.
             let dst = Rectangle::new(geo.loc - encompassing_loc, geo.size);
-            if let Err(e) = RenderElement::<GlesRenderer>::draw(element, &mut frame, src, dst, &[dst], &[], None) {
+            if let Err(e) = RenderElement::<GlesRenderer>::draw(
+                element,
+                &mut frame,
+                src,
+                dst,
+                &[dst],
+                &[],
+                None,
+            ) {
                 warn!("Failed to draw element for close animation: {:?}", e);
             }
         }
@@ -1238,13 +1332,8 @@ impl<BackendData: Backend + 'static> AnvilState<BackendData> {
         drop(target);
         drop(texture_mut);
 
-        let buffer = TextureBuffer::from_texture(
-            renderer,
-            texture_clone,
-            scale,
-            transform,
-            Vec::new(),
-        );
+        let buffer =
+            TextureBuffer::from_texture(renderer, texture_clone, scale, transform, Vec::new());
 
         // Position of the window content relative to the output, in logical coords.
         // This is where the closing animation will render the snapshot.
@@ -1278,8 +1367,8 @@ impl<BackendData: Backend + 'static> AnvilState<BackendData> {
 
         // Create the close animation
         let anim = Animation::ease(
-            0.0,  // from: progress 0 (visible)
-            1.0,  // to: progress 1 (gone)
+            0.0, // from: progress 0 (visible)
+            1.0, // to: progress 1 (gone)
             close_config.duration_ms,
             close_config.curve.to_curve(),
         );
@@ -1300,10 +1389,9 @@ impl<BackendData: Backend + 'static> AnvilState<BackendData> {
 
     /// Remove closing windows whose animations have finished.
     pub fn cleanup_finished_close_animations(&mut self) {
-        self.closing_windows.retain(|closing| closing.is_animating());
+        self.closing_windows
+            .retain(|closing| closing.is_animating());
     }
-
-
 
     /// Request that a window be closed.
     ///
@@ -1361,6 +1449,220 @@ impl<BackendData: Backend + 'static> AnvilState<BackendData> {
         if let Err(err) = to_introspect.send_blocking(msg) {
             warn!("error sending windows to introspect: {err:?}");
         }
+    }
+
+    // ── Workspaces ──────────────────────────────────────────────
+
+    /// Active workspace index for the given output.
+    pub fn active_workspace(&self, output: &Output) -> u32 {
+        self.workspaces.get(&output.name()).copied().unwrap_or(0)
+    }
+
+    /// The currently focused window element, if any.
+    pub fn focused_window(&self) -> Option<WindowElement> {
+        let keyboard = self.seat.get_keyboard()?;
+        match keyboard.current_focus() {
+            Some(crate::focus::KeyboardFocusTarget::Window(window)) => self
+                .space
+                .elements()
+                .find(|we| we.0 == window)
+                .cloned(),
+            _ => None,
+        }
+    }
+
+    /// The output the focused window lives on, else the pointer output, else the
+    /// first output.
+    pub fn focused_output(&self) -> Option<Output> {
+        if let Some(window) = self.focused_window() {
+            if let Some(geo) = self.space.element_geometry(&window) {
+                for output in self.space.outputs() {
+                    if self
+                        .space
+                        .output_geometry(output)
+                        .map(|g| g.intersection(geo).is_some())
+                        .unwrap_or(false)
+                    {
+                        return Some(output.clone());
+                    }
+                }
+            }
+        }
+        self.space
+            .output_under(self.pointer.current_location())
+            .next()
+            .cloned()
+            .or_else(|| self.space.outputs().next().cloned())
+    }
+
+    /// Switch the active workspace of `output` to `target`, fading windows in/out.
+    /// Workspaces extend infinitely downward (any `target` index is valid).
+    pub fn switch_workspace(&mut self, output: &Output, target: u32) {
+        let key = output.name();
+        let old = self.active_workspace(output);
+        if old == target {
+            return;
+        }
+        self.workspaces.insert(key, target);
+
+        let ws_anim = self.config.animations.workspace_switch;
+        let animated = self.config.animations.enable && ws_anim.enable;
+        let fade_of = |from: f64, to: f64| {
+            if animated {
+                crate::animation::Animation::ease(from, to, ws_anim.duration_ms, ws_anim.curve.to_curve())
+            } else {
+                crate::animation::Animation::new_off()
+            }
+        };
+
+        let windows: Vec<WindowElement> =
+            self.space.elements_for_output(output).cloned().collect();
+        for window in windows {
+            let mut st = window.decoration_state();
+            if st.workspace == target {
+                st.hidden = false;
+                st.fade_anim = Some(fade_of(0.0, 1.0));
+            } else {
+                st.hidden = true;
+                st.fade_anim = Some(fade_of(1.0, 0.0));
+            }
+        }
+
+        // Raise the topmost visible window so the layout treats it as focused.
+        let topmost = self
+            .space
+            .elements_for_output(output)
+            .find(|w| {
+                let st = w.decoration_state();
+                !st.hidden && st.workspace == target
+            })
+            .cloned();
+        if let Some(window) = &topmost {
+            self.space.raise_element(window, true);
+            #[cfg(feature = "xwayland")]
+            if let (Some(surface), Some(xwm)) = (window.0.x11_surface(), self.xwm.as_mut()) {
+                let _ = xwm.raise_window(surface);
+            }
+        }
+
+        self.arrange_layout();
+
+        if let Some(keyboard) = self.seat.get_keyboard() {
+            let serial = smithay::utils::SERIAL_COUNTER.next_serial();
+            keyboard.set_focus(self, topmost.map(|w| w.into()), serial);
+        }
+    }
+
+    /// Focus the given window: raise it, give it keyboard focus, and re-pan the
+    /// layout so focus-following layouts scroll to it.
+    pub fn focus_window(&mut self, window: &WindowElement) {
+        self.space.raise_element(window, true);
+        #[cfg(feature = "xwayland")]
+        if let (Some(surface), Some(xwm)) = (window.0.x11_surface(), self.xwm.as_mut()) {
+            let _ = xwm.raise_window(surface);
+        }
+        if let Some(keyboard) = self.seat.get_keyboard() {
+            let serial = smithay::utils::SERIAL_COUNTER.next_serial();
+            keyboard.set_focus(self, Some(window.clone().into()), serial);
+        }
+        self.arrange_layout();
+    }
+
+    /// Cycle keyboard focus through the visible tiled windows on the focused
+    /// output (`direction` = ±1, wrapping around).
+    pub fn focus_cycle(&mut self, direction: i32) {
+        let Some(output) = self.focused_output() else {
+            return;
+        };
+        let ws = self.active_workspace(&output);
+        let windows: Vec<WindowElement> = self
+            .space
+            .elements_for_output(&output)
+            .filter(|w| {
+                let st = w.decoration_state();
+                !st.hidden && st.workspace == ws && !st.layout.is_floating
+            })
+            .cloned()
+            .collect();
+        if windows.is_empty() {
+            return;
+        }
+        let current = self.focused_window();
+        let idx = current
+            .and_then(|c| windows.iter().position(|w| *w == c))
+            .unwrap_or(0);
+        let next = (idx as i32 + direction).rem_euclid(windows.len() as i32) as usize;
+        self.focus_window(&windows[next]);
+    }
+
+    /// Grow/shrink the focused window's column width by `delta` logical px.
+    /// The layout honors the override for built-in `columns` and Lua custom
+    /// layouts (exposed to Lua as `win.width`). Size changes animate via the
+    /// layout move/resize animations.
+    pub fn resize_width(&mut self, delta: f64) {
+        let Some(window) = self.focused_window() else {
+            return;
+        };
+        {
+            let mut st = window.decoration_state();
+            let lws = &mut st.layout;
+            let base = lws.width_override.unwrap_or_else(|| {
+                self.space
+                    .element_geometry(&window)
+                    .map(|g| g.size.w as f64)
+                    .unwrap_or(0.)
+            });
+            lws.width_override = Some((base + delta).clamp(100., 4000.));
+        }
+        self.arrange_layout();
+    }
+
+    /// Toggle windowed fullscreen: the focused window fills the whole work area,
+    /// covering the rest of the layout (other windows stay where they are).
+    pub fn toggle_maximize(&mut self) {
+        let Some(window) = self.focused_window() else {
+            return;
+        };
+        {
+            let mut st = window.decoration_state();
+            st.layout.full_width = !st.layout.full_width;
+        }
+        self.arrange_layout();
+    }
+
+    /// Toggle true fullscreen (XDG/X11 fullscreen state) for the focused window.
+    pub fn toggle_fullscreen(&mut self) {
+        use smithay::desktop::WindowSurface;
+        use smithay::wayland::shell::xdg::XdgShellHandler;
+
+        let Some(window) = self.focused_window() else {
+            return;
+        };
+        let is_fullscreen = self.space.outputs().any(|o| {
+            o.user_data()
+                .get::<crate::shell::FullscreenSurface>()
+                .and_then(|f| f.get())
+                .map(|w| w == window)
+                .unwrap_or(false)
+        });
+        match window.0.underlying_surface() {
+            WindowSurface::Wayland(toplevel) => {
+                if is_fullscreen {
+                    self.unfullscreen_request(toplevel.clone());
+                } else {
+                    self.fullscreen_request(toplevel.clone(), None);
+                }
+            }
+            #[cfg(feature = "xwayland")]
+            WindowSurface::X11(surface) => {
+                if is_fullscreen {
+                    self.unfullscreen_request_x11(&surface);
+                } else {
+                    self.fullscreen_request_x11(&surface);
+                }
+            }
+        }
+        self.arrange_layout();
     }
 }
 
@@ -1432,7 +1734,8 @@ impl<BackendData: Backend + 'static> AnvilState<BackendData> {
 
         let dh = self.display_handle.clone();
         for client in clients.into_values() {
-            self.client_compositor_state(&client).blocker_cleared(self, &dh);
+            self.client_compositor_state(&client)
+                .blocker_cleared(self, &dh);
         }
     }
 
@@ -1455,7 +1758,8 @@ impl<BackendData: Backend + 'static> AnvilState<BackendData> {
 
                 if let Some(output) = primary_scanout_output.as_ref() {
                     with_fractional_scale(states, |fraction_scale| {
-                        fraction_scale.set_preferred_scale(output.current_scale().fractional_scale());
+                        fraction_scale
+                            .set_preferred_scale(output.current_scale().fractional_scale());
                     });
                 }
 
@@ -1481,14 +1785,18 @@ impl<BackendData: Backend + 'static> AnvilState<BackendData> {
 
             window.send_frame(output, time, throttle, surface_primary_scanout_output);
             if let Some(dmabuf_feedback) = dmabuf_feedback.as_ref() {
-                window.send_dmabuf_feedback(output, surface_primary_scanout_output, |surface, _| {
-                    select_dmabuf_feedback(
-                        surface,
-                        render_element_states,
-                        &dmabuf_feedback.render_feedback,
-                        &dmabuf_feedback.scanout_feedback,
-                    )
-                });
+                window.send_dmabuf_feedback(
+                    output,
+                    surface_primary_scanout_output,
+                    |surface, _| {
+                        select_dmabuf_feedback(
+                            surface,
+                            render_element_states,
+                            &dmabuf_feedback.render_feedback,
+                            &dmabuf_feedback.scanout_feedback,
+                        )
+                    },
+                );
             }
         });
         let map = smithay::desktop::layer_map_for_output(output);
@@ -1498,7 +1806,8 @@ impl<BackendData: Backend + 'static> AnvilState<BackendData> {
 
                 if let Some(output) = primary_scanout_output.as_ref() {
                     with_fractional_scale(states, |fraction_scale| {
-                        fraction_scale.set_preferred_scale(output.current_scale().fractional_scale());
+                        fraction_scale
+                            .set_preferred_scale(output.current_scale().fractional_scale());
                     });
                 }
 
@@ -1524,14 +1833,18 @@ impl<BackendData: Backend + 'static> AnvilState<BackendData> {
 
             layer_surface.send_frame(output, time, throttle, surface_primary_scanout_output);
             if let Some(dmabuf_feedback) = dmabuf_feedback.as_ref() {
-                layer_surface.send_dmabuf_feedback(output, surface_primary_scanout_output, |surface, _| {
-                    select_dmabuf_feedback(
-                        surface,
-                        render_element_states,
-                        &dmabuf_feedback.render_feedback,
-                        &dmabuf_feedback.scanout_feedback,
-                    )
-                });
+                layer_surface.send_dmabuf_feedback(
+                    output,
+                    surface_primary_scanout_output,
+                    |surface, _| {
+                        select_dmabuf_feedback(
+                            surface,
+                            render_element_states,
+                            &dmabuf_feedback.render_feedback,
+                            &dmabuf_feedback.scanout_feedback,
+                        )
+                    },
+                );
             }
         }
         // Drop the lock to the layer map before calling blocker_cleared, which might end up
@@ -1544,7 +1857,8 @@ impl<BackendData: Backend + 'static> AnvilState<BackendData> {
 
                 if let Some(output) = primary_scanout_output.as_ref() {
                     with_fractional_scale(states, |fraction_scale| {
-                        fraction_scale.set_preferred_scale(output.current_scale().fractional_scale());
+                        fraction_scale
+                            .set_preferred_scale(output.current_scale().fractional_scale());
                     });
                 }
 
@@ -1575,7 +1889,8 @@ impl<BackendData: Backend + 'static> AnvilState<BackendData> {
 
                 if let Some(output) = primary_scanout_output.as_ref() {
                     with_fractional_scale(states, |fraction_scale| {
-                        fraction_scale.set_preferred_scale(output.current_scale().fractional_scale());
+                        fraction_scale
+                            .set_preferred_scale(output.current_scale().fractional_scale());
                     });
                 }
 
@@ -1602,7 +1917,8 @@ impl<BackendData: Backend + 'static> AnvilState<BackendData> {
 
         let dh = self.display_handle.clone();
         for client in clients.into_values() {
-            self.client_compositor_state(&client).blocker_cleared(self, &dh);
+            self.client_compositor_state(&client)
+                .blocker_cleared(self, &dh);
         }
     }
 }
@@ -1686,7 +2002,11 @@ pub fn take_presentation_feedback(
             &mut output_presentation_feedback,
             surface_primary_scanout_output,
             |surface, _| {
-                surface_presentation_feedback_flags_from_states(surface, None, render_element_states)
+                surface_presentation_feedback_flags_from_states(
+                    surface,
+                    None,
+                    render_element_states,
+                )
             },
         );
     });
@@ -1696,7 +2016,11 @@ pub fn take_presentation_feedback(
             &mut output_presentation_feedback,
             surface_primary_scanout_output,
             |surface, _| {
-                surface_presentation_feedback_flags_from_states(surface, None, render_element_states)
+                surface_presentation_feedback_flags_from_states(
+                    surface,
+                    None,
+                    render_element_states,
+                )
             },
         );
     }
@@ -1757,12 +2081,12 @@ pub fn save_screenshot_to_file(
     let mut encoder = png::Encoder::new(writer, width, height);
     encoder.set_color(png::ColorType::Rgba);
     encoder.set_depth(png::BitDepth::Eight);
-    let mut writer = encoder.write_header().map_err(|e| {
-        std::io::Error::new(std::io::ErrorKind::Other, e.to_string())
-    })?;
-    writer.write_image_data(pixels).map_err(|e| {
-        std::io::Error::new(std::io::ErrorKind::Other, e.to_string())
-    })?;
+    let mut writer = encoder
+        .write_header()
+        .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e.to_string()))?;
+    writer
+        .write_image_data(pixels)
+        .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e.to_string()))?;
     Ok(())
 }
 
@@ -1805,10 +2129,7 @@ pub fn encode_screenshot_png(
 impl<BackendData: Backend + 'static> AnvilState<BackendData> {
     /// Dispatch an IPC request coming from `bakawm-ctl`.
     /// Returns the JSON response plus optional binary payload (PNG bytes).
-    pub fn handle_ipc_request(
-        &mut self,
-        request: IpcRequest,
-    ) -> (IpcResponse, Option<Vec<u8>>) {
+    pub fn handle_ipc_request(&mut self, request: IpcRequest) -> (IpcResponse, Option<Vec<u8>>) {
         match request {
             IpcRequest::ListWindows => {
                 let windows = self.ipc_list_windows();

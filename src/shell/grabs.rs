@@ -31,7 +31,9 @@ pub struct PointerMoveSurfaceGrab<BackendData: Backend + 'static> {
     pub initial_window_location: Point<i32, Logical>,
 }
 
-impl<BackendData: Backend> PointerGrab<AnvilState<BackendData>> for PointerMoveSurfaceGrab<BackendData> {
+impl<BackendData: Backend> PointerGrab<AnvilState<BackendData>>
+    for PointerMoveSurfaceGrab<BackendData>
+{
     fn motion(
         &mut self,
         data: &mut AnvilState<BackendData>,
@@ -168,13 +170,342 @@ impl<BackendData: Backend> PointerGrab<AnvilState<BackendData>> for PointerMoveS
     fn unset(&mut self, _data: &mut AnvilState<BackendData>) {}
 }
 
+/// Grab that adjusts the focused window's column width while a tiling layout
+/// is active. Drags the left/right edge; the other windows move to accommodate.
+///
+/// Instead of the free 8-direction resize used in floating mode, this writes
+/// the window's `width_override` and re-runs the layout, so the width change
+/// (and the movement of the other windows) goes through the layout animation
+/// system.
+pub struct PointerWidthResizeGrab<BackendData: Backend + 'static> {
+    pub start_data: PointerGrabStartData<AnvilState<BackendData>>,
+    pub window: WindowElement,
+    pub initial_width: f64,
+}
+
+impl<BackendData: Backend> PointerGrab<AnvilState<BackendData>>
+    for PointerWidthResizeGrab<BackendData>
+{
+    fn motion(
+        &mut self,
+        data: &mut AnvilState<BackendData>,
+        handle: &mut PointerInnerHandle<'_, AnvilState<BackendData>>,
+        _focus: Option<(PointerFocusTarget, Point<f64, Logical>)>,
+        event: &MotionEvent,
+    ) {
+        // While the grab is active, no client has pointer focus
+        handle.motion(data, None, event);
+
+        if !self.window.alive() {
+            handle.unset_grab(self, data, event.serial, event.time, true);
+            return;
+        }
+
+        let dx = event.location.x - self.start_data.location.x;
+        let new_width = (self.initial_width + dx).clamp(100.0, 4000.0);
+        {
+            let mut st = self.window.decoration_state();
+            st.layout.width_override = Some(new_width);
+        }
+        // Re-run the layout: the focused column takes the new width and the
+        // other windows animate out of the way.
+        data.arrange_layout();
+    }
+
+    fn relative_motion(
+        &mut self,
+        data: &mut AnvilState<BackendData>,
+        handle: &mut PointerInnerHandle<'_, AnvilState<BackendData>>,
+        focus: Option<(PointerFocusTarget, Point<f64, Logical>)>,
+        event: &RelativeMotionEvent,
+    ) {
+        handle.relative_motion(data, focus, event);
+    }
+
+    fn button(
+        &mut self,
+        data: &mut AnvilState<BackendData>,
+        handle: &mut PointerInnerHandle<'_, AnvilState<BackendData>>,
+        event: &ButtonEvent,
+    ) {
+        handle.button(data, event);
+        if handle.current_pressed().is_empty() {
+            // No more buttons are pressed, release the grab.
+            handle.unset_grab(self, data, event.serial, event.time, true);
+        }
+    }
+
+    fn axis(
+        &mut self,
+        data: &mut AnvilState<BackendData>,
+        handle: &mut PointerInnerHandle<'_, AnvilState<BackendData>>,
+        details: AxisFrame,
+    ) {
+        handle.axis(data, details)
+    }
+
+    fn frame(
+        &mut self,
+        data: &mut AnvilState<BackendData>,
+        handle: &mut PointerInnerHandle<'_, AnvilState<BackendData>>,
+    ) {
+        handle.frame(data);
+    }
+
+    fn gesture_swipe_begin(
+        &mut self,
+        data: &mut AnvilState<BackendData>,
+        handle: &mut PointerInnerHandle<'_, AnvilState<BackendData>>,
+        event: &GestureSwipeBeginEvent,
+    ) {
+        handle.gesture_swipe_begin(data, event);
+    }
+
+    fn gesture_swipe_update(
+        &mut self,
+        data: &mut AnvilState<BackendData>,
+        handle: &mut PointerInnerHandle<'_, AnvilState<BackendData>>,
+        event: &GestureSwipeUpdateEvent,
+    ) {
+        handle.gesture_swipe_update(data, event);
+    }
+
+    fn gesture_swipe_end(
+        &mut self,
+        data: &mut AnvilState<BackendData>,
+        handle: &mut PointerInnerHandle<'_, AnvilState<BackendData>>,
+        event: &GestureSwipeEndEvent,
+    ) {
+        handle.gesture_swipe_end(data, event);
+    }
+
+    fn gesture_pinch_begin(
+        &mut self,
+        data: &mut AnvilState<BackendData>,
+        handle: &mut PointerInnerHandle<'_, AnvilState<BackendData>>,
+        event: &GesturePinchBeginEvent,
+    ) {
+        handle.gesture_pinch_begin(data, event);
+    }
+
+    fn gesture_pinch_update(
+        &mut self,
+        data: &mut AnvilState<BackendData>,
+        handle: &mut PointerInnerHandle<'_, AnvilState<BackendData>>,
+        event: &GesturePinchUpdateEvent,
+    ) {
+        handle.gesture_pinch_update(data, event);
+    }
+
+    fn gesture_pinch_end(
+        &mut self,
+        data: &mut AnvilState<BackendData>,
+        handle: &mut PointerInnerHandle<'_, AnvilState<BackendData>>,
+        event: &GesturePinchEndEvent,
+    ) {
+        handle.gesture_pinch_end(data, event);
+    }
+
+    fn gesture_hold_begin(
+        &mut self,
+        data: &mut AnvilState<BackendData>,
+        handle: &mut PointerInnerHandle<'_, AnvilState<BackendData>>,
+        event: &GestureHoldBeginEvent,
+    ) {
+        handle.gesture_hold_begin(data, event);
+    }
+
+    fn gesture_hold_end(
+        &mut self,
+        data: &mut AnvilState<BackendData>,
+        handle: &mut PointerInnerHandle<'_, AnvilState<BackendData>>,
+        event: &GestureHoldEndEvent,
+    ) {
+        handle.gesture_hold_end(data, event);
+    }
+
+    fn start_data(&self) -> &PointerGrabStartData<AnvilState<BackendData>> {
+        &self.start_data
+    }
+
+    fn unset(&mut self, _data: &mut AnvilState<BackendData>) {}
+}
+
+/// Grab that reorders a window within the active tiling layout.
+///
+/// While dragging, the window is temporarily detached from the layout and
+/// follows the cursor. On release, the window's final position decides which
+/// slot it takes in the arrangement: its z-order is updated and the layout is
+/// re-run, animating every window to its new position.
+pub struct PointerLayoutMoveGrab<BackendData: Backend + 'static> {
+    pub start_data: PointerGrabStartData<AnvilState<BackendData>>,
+    pub window: WindowElement,
+    pub initial_window_location: Point<i32, Logical>,
+}
+
+impl<BackendData: Backend> PointerGrab<AnvilState<BackendData>>
+    for PointerLayoutMoveGrab<BackendData>
+{
+    fn motion(
+        &mut self,
+        data: &mut AnvilState<BackendData>,
+        handle: &mut PointerInnerHandle<'_, AnvilState<BackendData>>,
+        _focus: Option<(PointerFocusTarget, Point<f64, Logical>)>,
+        event: &MotionEvent,
+    ) {
+        // While the grab is active, no client has pointer focus
+        handle.motion(data, None, event);
+
+        if !self.window.alive() {
+            handle.unset_grab(self, data, event.serial, event.time, true);
+            return;
+        }
+
+        let delta = event.location - self.start_data.location;
+        let new_location = self.initial_window_location.to_f64() + delta;
+
+        data.space
+            .map_element(self.window.clone(), new_location.to_i32_round(), true);
+    }
+
+    fn relative_motion(
+        &mut self,
+        data: &mut AnvilState<BackendData>,
+        handle: &mut PointerInnerHandle<'_, AnvilState<BackendData>>,
+        focus: Option<(PointerFocusTarget, Point<f64, Logical>)>,
+        event: &RelativeMotionEvent,
+    ) {
+        handle.relative_motion(data, focus, event);
+    }
+
+    fn button(
+        &mut self,
+        data: &mut AnvilState<BackendData>,
+        handle: &mut PointerInnerHandle<'_, AnvilState<BackendData>>,
+        event: &ButtonEvent,
+    ) {
+        handle.button(data, event);
+        if handle.current_pressed().is_empty() {
+            // Release: snap the window back into the layout at the slot that
+            // matches its final position, animating all windows there.
+            data.reorder_layout_window(&self.window);
+            handle.unset_grab(self, data, event.serial, event.time, true);
+        }
+    }
+
+    fn axis(
+        &mut self,
+        data: &mut AnvilState<BackendData>,
+        handle: &mut PointerInnerHandle<'_, AnvilState<BackendData>>,
+        details: AxisFrame,
+    ) {
+        handle.axis(data, details)
+    }
+
+    fn frame(
+        &mut self,
+        data: &mut AnvilState<BackendData>,
+        handle: &mut PointerInnerHandle<'_, AnvilState<BackendData>>,
+    ) {
+        handle.frame(data);
+    }
+
+    fn gesture_swipe_begin(
+        &mut self,
+        data: &mut AnvilState<BackendData>,
+        handle: &mut PointerInnerHandle<'_, AnvilState<BackendData>>,
+        event: &GestureSwipeBeginEvent,
+    ) {
+        handle.gesture_swipe_begin(data, event);
+    }
+
+    fn gesture_swipe_update(
+        &mut self,
+        data: &mut AnvilState<BackendData>,
+        handle: &mut PointerInnerHandle<'_, AnvilState<BackendData>>,
+        event: &GestureSwipeUpdateEvent,
+    ) {
+        handle.gesture_swipe_update(data, event);
+    }
+
+    fn gesture_swipe_end(
+        &mut self,
+        data: &mut AnvilState<BackendData>,
+        handle: &mut PointerInnerHandle<'_, AnvilState<BackendData>>,
+        event: &GestureSwipeEndEvent,
+    ) {
+        handle.gesture_swipe_end(data, event);
+    }
+
+    fn gesture_pinch_begin(
+        &mut self,
+        data: &mut AnvilState<BackendData>,
+        handle: &mut PointerInnerHandle<'_, AnvilState<BackendData>>,
+        event: &GesturePinchBeginEvent,
+    ) {
+        handle.gesture_pinch_begin(data, event);
+    }
+
+    fn gesture_pinch_update(
+        &mut self,
+        data: &mut AnvilState<BackendData>,
+        handle: &mut PointerInnerHandle<'_, AnvilState<BackendData>>,
+        event: &GesturePinchUpdateEvent,
+    ) {
+        handle.gesture_pinch_update(data, event);
+    }
+
+    fn gesture_pinch_end(
+        &mut self,
+        data: &mut AnvilState<BackendData>,
+        handle: &mut PointerInnerHandle<'_, AnvilState<BackendData>>,
+        event: &GesturePinchEndEvent,
+    ) {
+        handle.gesture_pinch_end(data, event);
+    }
+
+    fn gesture_hold_begin(
+        &mut self,
+        data: &mut AnvilState<BackendData>,
+        handle: &mut PointerInnerHandle<'_, AnvilState<BackendData>>,
+        event: &GestureHoldBeginEvent,
+    ) {
+        handle.gesture_hold_begin(data, event);
+    }
+
+    fn gesture_hold_end(
+        &mut self,
+        data: &mut AnvilState<BackendData>,
+        handle: &mut PointerInnerHandle<'_, AnvilState<BackendData>>,
+        event: &GestureHoldEndEvent,
+    ) {
+        handle.gesture_hold_end(data, event);
+    }
+
+    fn start_data(&self) -> &PointerGrabStartData<AnvilState<BackendData>> {
+        &self.start_data
+    }
+
+    fn unset(&mut self, _data: &mut AnvilState<BackendData>) {
+        // If the grab is cancelled (e.g. replaced by another grab), re-attach
+        // the window to the layout so it doesn't stay floating.
+        let mut st = self.window.decoration_state();
+        let lws = &mut st.layout;
+        lws.is_floating = false;
+        lws.move_anim = None;
+        lws.target = None;
+    }
+}
+
 pub struct TouchMoveSurfaceGrab<BackendData: Backend + 'static> {
     pub start_data: TouchGrabStartData<AnvilState<BackendData>>,
     pub window: WindowElement,
     pub initial_window_location: Point<i32, Logical>,
 }
 
-impl<BackendData: Backend> TouchGrab<AnvilState<BackendData>> for TouchMoveSurfaceGrab<BackendData> {
+impl<BackendData: Backend> TouchGrab<AnvilState<BackendData>>
+    for TouchMoveSurfaceGrab<BackendData>
+{
     fn down(
         &mut self,
         _data: &mut AnvilState<BackendData>,
@@ -358,7 +689,9 @@ pub struct PointerResizeSurfaceGrab<BackendData: Backend + 'static> {
     pub last_window_size: Size<i32, Logical>,
 }
 
-impl<BackendData: Backend> PointerGrab<AnvilState<BackendData>> for PointerResizeSurfaceGrab<BackendData> {
+impl<BackendData: Backend> PointerGrab<AnvilState<BackendData>>
+    for PointerResizeSurfaceGrab<BackendData>
+{
     fn motion(
         &mut self,
         data: &mut AnvilState<BackendData>,
@@ -411,8 +744,16 @@ impl<BackendData: Backend> PointerGrab<AnvilState<BackendData>> for PointerResiz
 
         let min_width = min_size.w.max(1);
         let min_height = min_size.h.max(1);
-        let max_width = if max_size.w == 0 { i32::MAX } else { max_size.w };
-        let max_height = if max_size.h == 0 { i32::MAX } else { max_size.h };
+        let max_width = if max_size.w == 0 {
+            i32::MAX
+        } else {
+            max_size.w
+        };
+        let max_height = if max_size.h == 0 {
+            i32::MAX
+        } else {
+            max_size.h
+        };
 
         new_window_width = new_window_width.max(min_width).min(max_width);
         new_window_height = new_window_height.max(min_height).min(max_height);
@@ -492,7 +833,8 @@ impl<BackendData: Backend> PointerGrab<AnvilState<BackendData>> for PointerResiz
                             .unwrap()
                             .borrow_mut();
                         if let ResizeState::Resizing(resize_data) = data.resize_state {
-                            data.resize_state = ResizeState::WaitingForFinalAck(resize_data, event.serial);
+                            data.resize_state =
+                                ResizeState::WaitingForFinalAck(resize_data, event.serial);
                         } else {
                             panic!("invalid resize state: {:?}", data.resize_state);
                         }
@@ -644,7 +986,9 @@ pub struct TouchResizeSurfaceGrab<BackendData: Backend + 'static> {
     pub last_window_size: Size<i32, Logical>,
 }
 
-impl<BackendData: Backend> TouchGrab<AnvilState<BackendData>> for TouchResizeSurfaceGrab<BackendData> {
+impl<BackendData: Backend> TouchGrab<AnvilState<BackendData>>
+    for TouchResizeSurfaceGrab<BackendData>
+{
     fn down(
         &mut self,
         _data: &mut AnvilState<BackendData>,
@@ -685,12 +1029,12 @@ impl<BackendData: Backend> TouchGrab<AnvilState<BackendData>> for TouchResizeSur
                     let mut location = data.space.element_location(&self.window).unwrap();
 
                     if self.edges.intersects(ResizeEdge::LEFT) {
-                        location.x =
-                            self.initial_window_location.x + (self.initial_window_size.w - geometry.size.w);
+                        location.x = self.initial_window_location.x
+                            + (self.initial_window_size.w - geometry.size.w);
                     }
                     if self.edges.intersects(ResizeEdge::TOP) {
-                        location.y =
-                            self.initial_window_location.y + (self.initial_window_size.h - geometry.size.h);
+                        location.y = self.initial_window_location.y
+                            + (self.initial_window_size.h - geometry.size.h);
                     }
 
                     data.space.map_element(self.window.clone(), location, true);
@@ -703,7 +1047,8 @@ impl<BackendData: Backend> TouchGrab<AnvilState<BackendData>> for TouchResizeSur
                         .unwrap()
                         .borrow_mut();
                     if let ResizeState::Resizing(resize_data) = data.resize_state {
-                        data.resize_state = ResizeState::WaitingForFinalAck(resize_data, event.serial);
+                        data.resize_state =
+                            ResizeState::WaitingForFinalAck(resize_data, event.serial);
                     } else {
                         panic!("invalid resize state: {:?}", data.resize_state);
                     }
@@ -716,12 +1061,12 @@ impl<BackendData: Backend> TouchGrab<AnvilState<BackendData>> for TouchResizeSur
                     let geometry = self.window.geometry();
 
                     if self.edges.intersects(ResizeEdge::LEFT) {
-                        location.x =
-                            self.initial_window_location.x + (self.initial_window_size.w - geometry.size.w);
+                        location.x = self.initial_window_location.x
+                            + (self.initial_window_size.w - geometry.size.w);
                     }
                     if self.edges.intersects(ResizeEdge::TOP) {
-                        location.y =
-                            self.initial_window_location.y + (self.initial_window_size.h - geometry.size.h);
+                        location.y = self.initial_window_location.y
+                            + (self.initial_window_size.h - geometry.size.h);
                     }
 
                     data.space.map_element(self.window.clone(), location, true);
@@ -805,8 +1150,16 @@ impl<BackendData: Backend> TouchGrab<AnvilState<BackendData>> for TouchResizeSur
 
         let min_width = min_size.w.max(1);
         let min_height = min_size.h.max(1);
-        let max_width = if max_size.w == 0 { i32::MAX } else { max_size.w };
-        let max_height = if max_size.h == 0 { i32::MAX } else { max_size.h };
+        let max_width = if max_size.w == 0 {
+            i32::MAX
+        } else {
+            max_size.w
+        };
+        let max_height = if max_size.h == 0 {
+            i32::MAX
+        } else {
+            max_size.h
+        };
 
         new_window_width = new_window_width.max(min_width).min(max_width);
         new_window_height = new_window_height.max(min_height).min(max_height);

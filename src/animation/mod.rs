@@ -5,7 +5,7 @@
 mod easing;
 mod spring;
 
-pub use easing::{Curve, CubicBezier};
+pub use easing::{CubicBezier, Curve};
 pub use spring::{Spring, SpringParams};
 
 use std::time::{Duration, Instant};
@@ -44,7 +44,9 @@ impl Animation {
             duration: Duration::ZERO,
             clamped_duration: Duration::ZERO,
             start_time: Instant::now(),
-            kind: AnimationKind::Easing { curve: Curve::Linear },
+            kind: AnimationKind::Easing {
+                curve: Curve::Linear,
+            },
         }
     }
 
@@ -96,7 +98,9 @@ impl Animation {
         }
 
         match self.kind {
-            AnimationKind::Easing { curve } => Self::ease(from, to, self.duration.as_millis() as u32, curve),
+            AnimationKind::Easing { curve } => {
+                Self::ease(from, to, self.duration.as_millis() as u32, curve)
+            }
             AnimationKind::Spring(spring) => {
                 let spring = Spring {
                     from,

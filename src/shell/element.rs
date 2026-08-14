@@ -4,22 +4,23 @@ use smithay::{
     backend::renderer::{
         element::{
             AsRenderElements, Element, Id, Kind, RenderElement, UnderlyingStorage,
-            solid::SolidColorRenderElement,
-            surface::WaylandSurfaceRenderElement,
+            solid::SolidColorRenderElement, surface::WaylandSurfaceRenderElement,
         },
         gles::{GlesError, GlesFrame, GlesRenderer},
         multigpu::MultiRenderer,
         utils::{CommitCounter, DamageSet, OpaqueRegions},
     },
     desktop::{
-        Window, WindowSurface, WindowSurfaceType, space::SpaceElement, utils::OutputPresentationFeedback,
+        Window, WindowSurface, WindowSurfaceType, space::SpaceElement,
+        utils::OutputPresentationFeedback,
     },
     input::{
         Seat,
         pointer::{
-            AxisFrame, ButtonEvent, GestureHoldBeginEvent, GestureHoldEndEvent, GesturePinchBeginEvent,
-            GesturePinchEndEvent, GesturePinchUpdateEvent, GestureSwipeBeginEvent, GestureSwipeEndEvent,
-            GestureSwipeUpdateEvent, MotionEvent, PointerTarget, RelativeMotionEvent,
+            AxisFrame, ButtonEvent, GestureHoldBeginEvent, GestureHoldEndEvent,
+            GesturePinchBeginEvent, GesturePinchEndEvent, GesturePinchUpdateEvent,
+            GestureSwipeBeginEvent, GestureSwipeEndEvent, GestureSwipeUpdateEvent, MotionEvent,
+            PointerTarget, RelativeMotionEvent,
         },
         touch::{FrameMarker, TouchTarget},
     },
@@ -28,12 +29,25 @@ use smithay::{
         wayland_protocols::wp::presentation_time::server::wp_presentation_feedback,
         wayland_server::protocol::wl_surface::WlSurface,
     },
-    utils::{Buffer, IsAlive, Logical, Physical, Point, Rectangle, Scale, Serial, Size, Transform, user_data::UserDataMap},
-    wayland::{compositor::SurfaceData as WlSurfaceData, dmabuf::DmabufFeedback, seat::WaylandFocus},
+    utils::{
+        Buffer, IsAlive, Logical, Physical, Point, Rectangle, Scale, Serial, Size, Transform,
+        user_data::UserDataMap,
+    },
+    wayland::{
+        compositor::SurfaceData as WlSurfaceData, dmabuf::DmabufFeedback, seat::WaylandFocus,
+    },
 };
 
-
-use crate::{AnvilState, config::CornerRadius, focus::PointerFocusTarget, render_helpers::{border::BorderRenderElement, clipped_surface::ClippedSurfaceRenderElement, shadow::ShadowRenderElement}, state::Backend};
+use crate::{
+    AnvilState,
+    config::CornerRadius,
+    focus::PointerFocusTarget,
+    render_helpers::{
+        border::BorderRenderElement, clipped_surface::ClippedSurfaceRenderElement,
+        shadow::ShadowRenderElement,
+    },
+    state::Backend,
+};
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct WindowElement(pub Window);
@@ -74,7 +88,8 @@ impl WindowElement {
         T: Into<Duration>,
         F: FnMut(&WlSurface, &WlSurfaceData) -> Option<Output> + Copy,
     {
-        self.0.send_frame(output, time, throttle, primary_scan_out_output)
+        self.0
+            .send_frame(output, time, throttle, primary_scan_out_output)
     }
 
     pub fn send_dmabuf_feedback<'a, P, F>(
@@ -281,7 +296,9 @@ impl<BackendData: Backend> TouchTarget<AnvilState<BackendData>> for SSD {
         let mut state = self.0.decoration_state();
         if state.is_ssd {
             state.header_bar.pointer_enter(event.location);
-            state.header_bar.touch_down(seat, data, &self.0, event.serial);
+            state
+                .header_bar
+                .touch_down(seat, data, &self.0, event.serial);
         }
     }
 
@@ -389,6 +406,7 @@ pub enum WindowRenderElement {
     Border(BorderRenderElement),
     Shadow(ShadowRenderElement),
     ClippedSurface(ClippedSurfaceRenderElement),
+    CustomShader(crate::render_helpers::custom_shaders::CustomShaderRenderElement),
 }
 
 impl Element for WindowRenderElement {
@@ -399,6 +417,7 @@ impl Element for WindowRenderElement {
             Self::Border(e) => e.id(),
             Self::Shadow(e) => e.id(),
             Self::ClippedSurface(e) => e.id(),
+            Self::CustomShader(e) => e.id(),
         }
     }
 
@@ -409,6 +428,7 @@ impl Element for WindowRenderElement {
             Self::Border(e) => e.current_commit(),
             Self::Shadow(e) => e.current_commit(),
             Self::ClippedSurface(e) => e.current_commit(),
+            Self::CustomShader(e) => e.current_commit(),
         }
     }
 
@@ -419,6 +439,7 @@ impl Element for WindowRenderElement {
             Self::Border(e) => e.geometry(scale),
             Self::Shadow(e) => e.geometry(scale),
             Self::ClippedSurface(e) => e.geometry(scale),
+            Self::CustomShader(e) => e.geometry(scale),
         }
     }
 
@@ -429,6 +450,7 @@ impl Element for WindowRenderElement {
             Self::Border(e) => e.transform(),
             Self::Shadow(e) => e.transform(),
             Self::ClippedSurface(e) => e.transform(),
+            Self::CustomShader(e) => e.transform(),
         }
     }
 
@@ -439,6 +461,7 @@ impl Element for WindowRenderElement {
             Self::Border(e) => e.src(),
             Self::Shadow(e) => e.src(),
             Self::ClippedSurface(e) => e.src(),
+            Self::CustomShader(e) => e.src(),
         }
     }
 
@@ -453,6 +476,7 @@ impl Element for WindowRenderElement {
             Self::Border(e) => e.damage_since(scale, commit),
             Self::Shadow(e) => e.damage_since(scale, commit),
             Self::ClippedSurface(e) => e.damage_since(scale, commit),
+            Self::CustomShader(e) => e.damage_since(scale, commit),
         }
     }
 
@@ -463,6 +487,7 @@ impl Element for WindowRenderElement {
             Self::Border(e) => e.opaque_regions(scale),
             Self::Shadow(e) => e.opaque_regions(scale),
             Self::ClippedSurface(e) => e.opaque_regions(scale),
+            Self::CustomShader(e) => e.opaque_regions(scale),
         }
     }
 
@@ -473,6 +498,7 @@ impl Element for WindowRenderElement {
             Self::Border(e) => e.alpha(),
             Self::Shadow(e) => e.alpha(),
             Self::ClippedSurface(e) => e.alpha(),
+            Self::CustomShader(e) => e.alpha(),
         }
     }
 
@@ -483,6 +509,7 @@ impl Element for WindowRenderElement {
             Self::Border(e) => e.kind(),
             Self::Shadow(e) => e.kind(),
             Self::ClippedSurface(e) => e.kind(),
+            Self::CustomShader(e) => e.kind(),
         }
     }
 }
@@ -498,11 +525,60 @@ impl RenderElement<GlesRenderer> for WindowRenderElement {
         cache: Option<&smithay::utils::user_data::UserDataMap>,
     ) -> Result<(), GlesError> {
         match self {
-            Self::Window(e) => RenderElement::<GlesRenderer>::draw(e, frame, src, dst, damage, opaque_regions, cache),
-            Self::Decoration(e) => RenderElement::<GlesRenderer>::draw(e, frame, src, dst, damage, opaque_regions, cache),
-            Self::Border(e) => RenderElement::<GlesRenderer>::draw(e, frame, src, dst, damage, opaque_regions, cache),
-            Self::Shadow(e) => RenderElement::<GlesRenderer>::draw(e, frame, src, dst, damage, opaque_regions, cache),
-            Self::ClippedSurface(e) => RenderElement::<GlesRenderer>::draw(e, frame, src, dst, damage, opaque_regions, cache),
+            Self::Window(e) => RenderElement::<GlesRenderer>::draw(
+                e,
+                frame,
+                src,
+                dst,
+                damage,
+                opaque_regions,
+                cache,
+            ),
+            Self::Decoration(e) => RenderElement::<GlesRenderer>::draw(
+                e,
+                frame,
+                src,
+                dst,
+                damage,
+                opaque_regions,
+                cache,
+            ),
+            Self::Border(e) => RenderElement::<GlesRenderer>::draw(
+                e,
+                frame,
+                src,
+                dst,
+                damage,
+                opaque_regions,
+                cache,
+            ),
+            Self::Shadow(e) => RenderElement::<GlesRenderer>::draw(
+                e,
+                frame,
+                src,
+                dst,
+                damage,
+                opaque_regions,
+                cache,
+            ),
+            Self::ClippedSurface(e) => RenderElement::<GlesRenderer>::draw(
+                e,
+                frame,
+                src,
+                dst,
+                damage,
+                opaque_regions,
+                cache,
+            ),
+            Self::CustomShader(e) => RenderElement::<GlesRenderer>::draw(
+                e,
+                frame,
+                src,
+                dst,
+                damage,
+                opaque_regions,
+                cache,
+            ),
         }
     }
 
@@ -513,6 +589,7 @@ impl RenderElement<GlesRenderer> for WindowRenderElement {
             Self::Border(e) => e.underlying_storage(renderer),
             Self::Shadow(e) => e.underlying_storage(renderer),
             Self::ClippedSurface(e) => e.underlying_storage(renderer),
+            Self::CustomShader(e) => e.underlying_storage(renderer),
         }
     }
 
@@ -524,11 +601,24 @@ impl RenderElement<GlesRenderer> for WindowRenderElement {
         cache: &smithay::utils::user_data::UserDataMap,
     ) -> Result<(), GlesError> {
         match self {
-            Self::Window(e) => RenderElement::<GlesRenderer>::capture_framebuffer(e, frame, src, dst, cache),
-            Self::Decoration(e) => RenderElement::<GlesRenderer>::capture_framebuffer(e, frame, src, dst, cache),
-            Self::Border(e) => RenderElement::<GlesRenderer>::capture_framebuffer(e, frame, src, dst, cache),
-            Self::Shadow(e) => RenderElement::<GlesRenderer>::capture_framebuffer(e, frame, src, dst, cache),
-            Self::ClippedSurface(e) => RenderElement::<GlesRenderer>::capture_framebuffer(e, frame, src, dst, cache),
+            Self::Window(e) => {
+                RenderElement::<GlesRenderer>::capture_framebuffer(e, frame, src, dst, cache)
+            }
+            Self::Decoration(e) => {
+                RenderElement::<GlesRenderer>::capture_framebuffer(e, frame, src, dst, cache)
+            }
+            Self::Border(e) => {
+                RenderElement::<GlesRenderer>::capture_framebuffer(e, frame, src, dst, cache)
+            }
+            Self::Shadow(e) => {
+                RenderElement::<GlesRenderer>::capture_framebuffer(e, frame, src, dst, cache)
+            }
+            Self::ClippedSurface(e) => {
+                RenderElement::<GlesRenderer>::capture_framebuffer(e, frame, src, dst, cache)
+            }
+            Self::CustomShader(e) => {
+                RenderElement::<GlesRenderer>::capture_framebuffer(e, frame, src, dst, cache)
+            }
         }
     }
 }
@@ -536,32 +626,99 @@ impl RenderElement<GlesRenderer> for WindowRenderElement {
 pub type UdevMultiRenderer<'a, 'b> = MultiRenderer<
     'a,
     'b,
-    smithay::backend::renderer::multigpu::gbm::GbmGlesBackend<smithay::backend::renderer::gles::GlesRenderer, smithay::backend::drm::DrmDeviceFd>,
-    smithay::backend::renderer::multigpu::gbm::GbmGlesBackend<smithay::backend::renderer::gles::GlesRenderer, smithay::backend::drm::DrmDeviceFd>,
+    smithay::backend::renderer::multigpu::gbm::GbmGlesBackend<
+        smithay::backend::renderer::gles::GlesRenderer,
+        smithay::backend::drm::DrmDeviceFd,
+    >,
+    smithay::backend::renderer::multigpu::gbm::GbmGlesBackend<
+        smithay::backend::renderer::gles::GlesRenderer,
+        smithay::backend::drm::DrmDeviceFd,
+    >,
 >;
 
 #[cfg(feature = "udev")]
-impl<'a, 'b> RenderElement<UdevMultiRenderer<'a, 'b>> for WindowRenderElement
-{
+impl<'a, 'b> RenderElement<UdevMultiRenderer<'a, 'b>> for WindowRenderElement {
     fn draw(
         &self,
-        frame: &mut <UdevMultiRenderer<'a, 'b> as smithay::backend::renderer::RendererSuper>::Frame<'_, '_>,
+        frame: &mut <UdevMultiRenderer<'a, 'b> as smithay::backend::renderer::RendererSuper>::Frame<
+            '_,
+            '_,
+        >,
         src: Rectangle<f64, Buffer>,
         dst: Rectangle<i32, Physical>,
         damage: &[Rectangle<i32, Physical>],
         opaque_regions: &[Rectangle<i32, Physical>],
         cache: Option<&smithay::utils::user_data::UserDataMap>,
-    ) -> Result<(), <UdevMultiRenderer<'a, 'b> as smithay::backend::renderer::RendererSuper>::Error> {
+    ) -> Result<(), <UdevMultiRenderer<'a, 'b> as smithay::backend::renderer::RendererSuper>::Error>
+    {
         match self {
-            Self::Window(e) => RenderElement::<GlesRenderer>::draw(e, frame.as_mut(), src, dst, damage, opaque_regions, cache).map_err(Into::into),
-            Self::Decoration(e) => RenderElement::<GlesRenderer>::draw(e, frame.as_mut(), src, dst, damage, opaque_regions, cache).map_err(Into::into),
-            Self::Border(e) => RenderElement::<GlesRenderer>::draw(e, frame.as_mut(), src, dst, damage, opaque_regions, cache).map_err(Into::into),
-            Self::Shadow(e) => RenderElement::<GlesRenderer>::draw(e, frame.as_mut(), src, dst, damage, opaque_regions, cache).map_err(Into::into),
-            Self::ClippedSurface(e) => RenderElement::<GlesRenderer>::draw(e, frame.as_mut(), src, dst, damage, opaque_regions, cache).map_err(Into::into),
+            Self::Window(e) => RenderElement::<GlesRenderer>::draw(
+                e,
+                frame.as_mut(),
+                src,
+                dst,
+                damage,
+                opaque_regions,
+                cache,
+            )
+            .map_err(Into::into),
+            Self::Decoration(e) => RenderElement::<GlesRenderer>::draw(
+                e,
+                frame.as_mut(),
+                src,
+                dst,
+                damage,
+                opaque_regions,
+                cache,
+            )
+            .map_err(Into::into),
+            Self::Border(e) => RenderElement::<GlesRenderer>::draw(
+                e,
+                frame.as_mut(),
+                src,
+                dst,
+                damage,
+                opaque_regions,
+                cache,
+            )
+            .map_err(Into::into),
+            Self::Shadow(e) => RenderElement::<GlesRenderer>::draw(
+                e,
+                frame.as_mut(),
+                src,
+                dst,
+                damage,
+                opaque_regions,
+                cache,
+            )
+            .map_err(Into::into),
+            Self::ClippedSurface(e) => RenderElement::<GlesRenderer>::draw(
+                e,
+                frame.as_mut(),
+                src,
+                dst,
+                damage,
+                opaque_regions,
+                cache,
+            )
+            .map_err(Into::into),
+            Self::CustomShader(e) => RenderElement::<GlesRenderer>::draw(
+                e,
+                frame.as_mut(),
+                src,
+                dst,
+                damage,
+                opaque_regions,
+                cache,
+            )
+            .map_err(Into::into),
         }
     }
 
-    fn underlying_storage(&self, renderer: &mut UdevMultiRenderer<'a, 'b>) -> Option<UnderlyingStorage<'_>> {
+    fn underlying_storage(
+        &self,
+        renderer: &mut UdevMultiRenderer<'a, 'b>,
+    ) -> Option<UnderlyingStorage<'_>> {
         let gles = renderer.as_mut();
         match self {
             Self::Window(e) => e.underlying_storage(gles),
@@ -569,22 +726,70 @@ impl<'a, 'b> RenderElement<UdevMultiRenderer<'a, 'b>> for WindowRenderElement
             Self::Border(e) => e.underlying_storage(gles),
             Self::Shadow(e) => e.underlying_storage(gles),
             Self::ClippedSurface(e) => e.underlying_storage(gles),
+            Self::CustomShader(e) => e.underlying_storage(gles),
         }
     }
 
     fn capture_framebuffer(
         &self,
-        frame: &mut <UdevMultiRenderer<'a, 'b> as smithay::backend::renderer::RendererSuper>::Frame<'_, '_>,
+        frame: &mut <UdevMultiRenderer<'a, 'b> as smithay::backend::renderer::RendererSuper>::Frame<
+            '_,
+            '_,
+        >,
         src: Rectangle<f64, Buffer>,
         dst: Rectangle<i32, Physical>,
         cache: &smithay::utils::user_data::UserDataMap,
-    ) -> Result<(), <UdevMultiRenderer<'a, 'b> as smithay::backend::renderer::RendererSuper>::Error> {
+    ) -> Result<(), <UdevMultiRenderer<'a, 'b> as smithay::backend::renderer::RendererSuper>::Error>
+    {
         match self {
-            Self::Window(e) => RenderElement::<GlesRenderer>::capture_framebuffer(e, frame.as_mut(), src, dst, cache).map_err(Into::into),
-            Self::Decoration(e) => RenderElement::<GlesRenderer>::capture_framebuffer(e, frame.as_mut(), src, dst, cache).map_err(Into::into),
-            Self::Border(e) => RenderElement::<GlesRenderer>::capture_framebuffer(e, frame.as_mut(), src, dst, cache).map_err(Into::into),
-            Self::Shadow(e) => RenderElement::<GlesRenderer>::capture_framebuffer(e, frame.as_mut(), src, dst, cache).map_err(Into::into),
-            Self::ClippedSurface(e) => RenderElement::<GlesRenderer>::capture_framebuffer(e, frame.as_mut(), src, dst, cache).map_err(Into::into),
+            Self::Window(e) => RenderElement::<GlesRenderer>::capture_framebuffer(
+                e,
+                frame.as_mut(),
+                src,
+                dst,
+                cache,
+            )
+            .map_err(Into::into),
+            Self::Decoration(e) => RenderElement::<GlesRenderer>::capture_framebuffer(
+                e,
+                frame.as_mut(),
+                src,
+                dst,
+                cache,
+            )
+            .map_err(Into::into),
+            Self::Border(e) => RenderElement::<GlesRenderer>::capture_framebuffer(
+                e,
+                frame.as_mut(),
+                src,
+                dst,
+                cache,
+            )
+            .map_err(Into::into),
+            Self::Shadow(e) => RenderElement::<GlesRenderer>::capture_framebuffer(
+                e,
+                frame.as_mut(),
+                src,
+                dst,
+                cache,
+            )
+            .map_err(Into::into),
+            Self::ClippedSurface(e) => RenderElement::<GlesRenderer>::capture_framebuffer(
+                e,
+                frame.as_mut(),
+                src,
+                dst,
+                cache,
+            )
+            .map_err(Into::into),
+            Self::CustomShader(e) => RenderElement::<GlesRenderer>::capture_framebuffer(
+                e,
+                frame.as_mut(),
+                src,
+                dst,
+                cache,
+            )
+            .map_err(Into::into),
         }
     }
 }
@@ -619,6 +824,14 @@ impl From<ClippedSurfaceRenderElement> for WindowRenderElement {
     }
 }
 
+impl From<crate::render_helpers::custom_shaders::CustomShaderRenderElement>
+    for WindowRenderElement
+{
+    fn from(e: crate::render_helpers::custom_shaders::CustomShaderRenderElement) -> Self {
+        Self::CustomShader(e)
+    }
+}
+
 #[cfg(feature = "udev")]
 impl<'a, 'b> AsRenderElements<UdevMultiRenderer<'a, 'b>> for WindowElement {
     type RenderElement = WindowRenderElement;
@@ -630,7 +843,13 @@ impl<'a, 'b> AsRenderElements<UdevMultiRenderer<'a, 'b>> for WindowElement {
         scale: Scale<f64>,
         alpha: f32,
     ) -> Vec<C> {
-        AsRenderElements::<GlesRenderer>::render_elements::<C>(self, renderer.as_mut(), location, scale, alpha)
+        AsRenderElements::<GlesRenderer>::render_elements::<C>(
+            self,
+            renderer.as_mut(),
+            location,
+            scale,
+            alpha,
+        )
     }
 }
 
@@ -660,6 +879,15 @@ impl AsRenderElements<GlesRenderer> for WindowElement {
             alpha
         };
 
+        // Apply workspace-switch fade alpha.
+        let effective_alpha = if let Some(ref anim) = state.fade_anim {
+            effective_alpha * anim.clamped_value().clamp(0., 1.) as f32
+        } else if state.hidden {
+            0.0
+        } else {
+            effective_alpha
+        };
+
         let window_geo = SpaceElement::geometry(&self.0);
 
         let border_width = state.border.last_border_width;
@@ -673,6 +901,7 @@ impl AsRenderElements<GlesRenderer> for WindowElement {
         let has_border = border_width >= 0.5;
         let has_corners = corner_radius != CornerRadius::default();
         let has_shadow = shadow_config.enable;
+        let custom_shader = state.shader.clone();
 
         let geo_offset_physical: Point<i32, Physical> =
             window_geo.loc.to_physical_precise_round(scale);
@@ -695,12 +924,16 @@ impl AsRenderElements<GlesRenderer> for WindowElement {
             None
         };
         let has_border_shader = if has_border && has_corners {
-            *state.has_border_shader.get_or_insert_with(|| BorderRenderElement::has_shader(renderer))
+            *state
+                .has_border_shader
+                .get_or_insert_with(|| BorderRenderElement::has_shader(renderer))
         } else {
             false
         };
         let has_shadow_shader = if has_shadow {
-            *state.has_shadow_shader.get_or_insert_with(|| ShadowRenderElement::has_shader(renderer))
+            *state
+                .has_shadow_shader
+                .get_or_insert_with(|| ShadowRenderElement::has_shader(renderer))
         } else {
             false
         };
@@ -713,6 +946,20 @@ impl AsRenderElements<GlesRenderer> for WindowElement {
             for elem in window_elements {
                 match elem {
                     WindowRenderElement::Window(wayland_elem) => {
+                        if let Some(shader_name) = custom_shader.as_deref() {
+                            if let Some(shader) = crate::render_helpers::custom_shaders::get_program(
+                                renderer,
+                                shader_name,
+                            ) {
+                                result.push(C::from(WindowRenderElement::CustomShader(
+                                    crate::render_helpers::custom_shaders::CustomShaderRenderElement::new(
+                                        wayland_elem,
+                                        &shader,
+                                    ),
+                                )));
+                                continue;
+                            }
+                        }
                         if has_corners {
                             if let Some(shader) = clip_shader.clone() {
                                 if ClippedSurfaceRenderElement::will_clip(
@@ -721,17 +968,15 @@ impl AsRenderElements<GlesRenderer> for WindowElement {
                                     window_geo_logical,
                                     radius,
                                 ) {
-                                    result.push(
-                                        C::from(WindowRenderElement::ClippedSurface(
-                                            ClippedSurfaceRenderElement::new(
-                                                wayland_elem,
-                                                scale,
-                                                window_geo_logical,
-                                                shader,
-                                                radius,
-                                            ),
-                                        )),
-                                    );
+                                    result.push(C::from(WindowRenderElement::ClippedSurface(
+                                        ClippedSurfaceRenderElement::new(
+                                            wayland_elem,
+                                            scale,
+                                            window_geo_logical,
+                                            shader,
+                                            radius,
+                                        ),
+                                    )));
                                     continue;
                                 }
                             }
@@ -745,7 +990,12 @@ impl AsRenderElements<GlesRenderer> for WindowElement {
         };
 
         if has_border && !window_bbox.is_empty() {
-            state.border.redraw(window_geo.size.w, window_geo.size.h, border_width, border_color);
+            state.border.redraw(
+                window_geo.size.w,
+                window_geo.size.h,
+                border_width,
+                border_color,
+            );
 
             if has_corners && has_border_shader {
                 let bw = border_width as f32;
@@ -770,14 +1020,10 @@ impl AsRenderElements<GlesRenderer> for WindowElement {
                     scale.x as f32,
                     effective_alpha,
                 );
-                let border_elem = cached
-                    .clone()
-                    .with_location(
-                        Point::from((
-                            window_geo_logical.loc.x - border_width as f64,
-                            window_geo_logical.loc.y - border_width as f64,
-                        )),
-                    );
+                let border_elem = cached.clone().with_location(Point::from((
+                    window_geo_logical.loc.x - border_width as f64,
+                    window_geo_logical.loc.y - border_width as f64,
+                )));
 
                 vec.insert(0, C::from(WindowRenderElement::Border(border_elem)));
             } else {
@@ -787,54 +1033,52 @@ impl AsRenderElements<GlesRenderer> for WindowElement {
                 let full_w_phys = win_w_phys + bw_phys * 2;
                 let full_h_phys = win_h_phys + bw_phys * 2;
 
-                let border_loc: Point<i32, Physical> = Point::from((
-                    content_location.x - bw_phys,
-                    content_location.y - bw_phys,
-                ));
+                let border_loc: Point<i32, Physical> =
+                    Point::from((content_location.x - bw_phys, content_location.y - bw_phys));
 
-                vec.insert(0,
-                    WindowRenderElement::Decoration(
-                        SolidColorRenderElement::from_buffer(
-                            &state.border.top,
-                            border_loc,
-                            scale,
-                            effective_alpha,
-                            Kind::Unspecified,
-                        )
-                    ).into(),
+                vec.insert(
+                    0,
+                    WindowRenderElement::Decoration(SolidColorRenderElement::from_buffer(
+                        &state.border.top,
+                        border_loc,
+                        scale,
+                        effective_alpha,
+                        Kind::Unspecified,
+                    ))
+                    .into(),
                 );
-                vec.insert(0,
-                    WindowRenderElement::Decoration(
-                        SolidColorRenderElement::from_buffer(
-                            &state.border.bottom,
-                            Point::from((border_loc.x, border_loc.y + full_h_phys - bw_phys)),
-                            scale,
-                            effective_alpha,
-                            Kind::Unspecified,
-                        )
-                    ).into(),
+                vec.insert(
+                    0,
+                    WindowRenderElement::Decoration(SolidColorRenderElement::from_buffer(
+                        &state.border.bottom,
+                        Point::from((border_loc.x, border_loc.y + full_h_phys - bw_phys)),
+                        scale,
+                        effective_alpha,
+                        Kind::Unspecified,
+                    ))
+                    .into(),
                 );
-                vec.insert(0,
-                    WindowRenderElement::Decoration(
-                        SolidColorRenderElement::from_buffer(
-                            &state.border.left,
-                            Point::from((border_loc.x, border_loc.y + bw_phys)),
-                            scale,
-                            effective_alpha,
-                            Kind::Unspecified,
-                        )
-                    ).into(),
+                vec.insert(
+                    0,
+                    WindowRenderElement::Decoration(SolidColorRenderElement::from_buffer(
+                        &state.border.left,
+                        Point::from((border_loc.x, border_loc.y + bw_phys)),
+                        scale,
+                        effective_alpha,
+                        Kind::Unspecified,
+                    ))
+                    .into(),
                 );
-                vec.insert(0,
-                    WindowRenderElement::Decoration(
-                        SolidColorRenderElement::from_buffer(
-                            &state.border.right,
-                            Point::from((border_loc.x + full_w_phys - bw_phys, border_loc.y + bw_phys)),
-                            scale,
-                            effective_alpha,
-                            Kind::Unspecified,
-                        )
-                    ).into(),
+                vec.insert(
+                    0,
+                    WindowRenderElement::Decoration(SolidColorRenderElement::from_buffer(
+                        &state.border.right,
+                        Point::from((border_loc.x + full_w_phys - bw_phys, border_loc.y + bw_phys)),
+                        scale,
+                        effective_alpha,
+                        Kind::Unspecified,
+                    ))
+                    .into(),
                 );
             }
         }
@@ -845,10 +1089,7 @@ impl AsRenderElements<GlesRenderer> for WindowElement {
             let sigma = (shadow_config.softness / 2.) as f32;
             let width = ceil(sigma as f64 * 3.);
 
-            let offset = Point::from((
-                ceil(shadow_config.offset_x),
-                ceil(shadow_config.offset_y),
-            ));
+            let offset = Point::from((ceil(shadow_config.offset_x), ceil(shadow_config.offset_y)));
             let spread = ceil(shadow_config.spread.abs()).copysign(shadow_config.spread);
             let offset = offset - Point::from((spread, spread));
 
@@ -867,10 +1108,8 @@ impl AsRenderElements<GlesRenderer> for WindowElement {
             let shader_size = box_size + Size::from((width, width)).upscale(2.);
 
             let shader_geo = Rectangle::new(Point::from((-width, -width)), shader_size);
-            let window_geo_for_shadow = Rectangle::new(
-                Point::from((0., 0.)) - offset,
-                window_geo_size_logical,
-            );
+            let window_geo_for_shadow =
+                Rectangle::new(Point::from((0., 0.)) - offset, window_geo_size_logical);
 
             let shadow_elem = {
                 let cached = state
@@ -887,14 +1126,10 @@ impl AsRenderElements<GlesRenderer> for WindowElement {
                     win_radius,
                     effective_alpha,
                 );
-                cached
-                    .clone()
-                    .with_location(
-                        Point::from((
-                            window_geo_logical.loc.x + offset.x,
-                            window_geo_logical.loc.y + offset.y,
-                        )),
-                    )
+                cached.clone().with_location(Point::from((
+                    window_geo_logical.loc.x + offset.x,
+                    window_geo_logical.loc.y + offset.y,
+                )))
             };
 
             vec.insert(0, C::from(WindowRenderElement::Shadow(shadow_elem)));

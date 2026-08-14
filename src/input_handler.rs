@@ -1,7 +1,10 @@
 use std::{cell::RefCell, convert::TryInto, process::Command, sync::atomic::Ordering};
 
-use crate::config::BindConfig;
-use crate::shell::{PointerMoveSurfaceGrab, PointerResizeSurfaceGrab, ResizeEdge, ResizeData, ResizeState, SurfaceData, WindowElement};
+use crate::config::{BindConfig, LayoutType};
+use crate::shell::{
+    PointerLayoutMoveGrab, PointerMoveSurfaceGrab, PointerResizeSurfaceGrab, PointerWidthResizeGrab,
+    ResizeData, ResizeEdge, ResizeState, SurfaceData, WindowElement,
+};
 use crate::{AnvilState, focus::PointerFocusTarget, shell::FullscreenSurface};
 
 #[cfg(feature = "udev")]
@@ -11,8 +14,8 @@ use smithay::backend::renderer::DebugFlags;
 
 use smithay::{
     backend::input::{
-        self, Axis, AxisSource, Device, DeviceCapability, Event, InputBackend, InputEvent, KeyState,
-        KeyboardKeyEvent, PointerAxisEvent, PointerButtonEvent, TouchEvent,
+        self, Axis, AxisSource, Device, DeviceCapability, Event, InputBackend, InputEvent,
+        KeyState, KeyboardKeyEvent, PointerAxisEvent, PointerButtonEvent, TouchEvent,
     },
     desktop::{WindowSurfaceType, layer_map_for_output, space::SpaceElement},
     input::{
@@ -45,16 +48,17 @@ use crate::state::Backend;
 use smithay::{
     backend::{
         input::{
-            GestureBeginEvent, GestureEndEvent, GesturePinchUpdateEvent as _, GestureSwipeUpdateEvent as _,
-            PointerMotionEvent, ProximityState, TabletToolButtonEvent, TabletToolEvent,
-            TabletToolProximityEvent, TabletToolTipEvent, TabletToolTipState,
+            GestureBeginEvent, GestureEndEvent, GesturePinchUpdateEvent as _,
+            GestureSwipeUpdateEvent as _, PointerMotionEvent, ProximityState,
+            TabletToolButtonEvent, TabletToolEvent, TabletToolProximityEvent, TabletToolTipEvent,
+            TabletToolTipState,
         },
         session::Session,
     },
     input::pointer::{
         GestureHoldBeginEvent, GestureHoldEndEvent, GesturePinchBeginEvent, GesturePinchEndEvent,
-        GesturePinchUpdateEvent, GestureSwipeBeginEvent, GestureSwipeEndEvent, GestureSwipeUpdateEvent,
-        RelativeMotionEvent,
+        GesturePinchUpdateEvent, GestureSwipeBeginEvent, GestureSwipeEndEvent,
+        GestureSwipeUpdateEvent, RelativeMotionEvent,
     },
     reexports::wayland_server::DisplayHandle,
     wayland::{
@@ -84,6 +88,16 @@ impl<BackendData: Backend> AnvilState<BackendData> {
                         // send_close() is deferred until after the snapshot is captured
                         // to ensure the window texture is still available.
                         self.queue_close_animation(&WindowElement(window.clone()));
+                    }
+                }
+            }
+
+            KeyAction::ToggleFloating => {
+                if let Some(keyboard) = self.seat.get_keyboard() {
+                    if let Some(crate::focus::KeyboardFocusTarget::Window(window)) =
+                        keyboard.current_focus()
+                    {
+                        self.toggle_window_floating(&WindowElement(window.clone()));
                     }
                 }
             }
@@ -120,12 +134,13 @@ impl<BackendData: Backend> AnvilState<BackendData> {
                     if let Some(toplevel) = element.0.toplevel() {
                         let mode_changed = toplevel.with_pending_state(|state| {
                             if let Some(current_mode) = state.decoration_mode {
-                                let new_mode =
-                                    if current_mode == zxdg_toplevel_decoration_v1::Mode::ClientSide {
-                                        zxdg_toplevel_decoration_v1::Mode::ServerSide
-                                    } else {
-                                        zxdg_toplevel_decoration_v1::Mode::ClientSide
-                                    };
+                                let new_mode = if current_mode
+                                    == zxdg_toplevel_decoration_v1::Mode::ClientSide
+                                {
+                                    zxdg_toplevel_decoration_v1::Mode::ServerSide
+                                } else {
+                                    zxdg_toplevel_decoration_v1::Mode::ClientSide
+                                };
                                 state.decoration_mode = Some(new_mode);
                                 true
                             } else {
@@ -154,6 +169,37 @@ impl<BackendData: Backend> AnvilState<BackendData> {
                     warn!("Lua callback {} triggered but no LuaConfig available", idx);
                 }
             }
+
+            KeyAction::FocusNext => self.focus_cycle(1),
+
+            KeyAction::FocusPrev => self.focus_cycle(-1),
+
+            KeyAction::WorkspaceNext | KeyAction::WorkspacePrev => {
+                let Some(output) = self.focused_output() else {
+                    return;
+                };
+                let current = self.active_workspace(&output);
+                let target = if matches!(action, KeyAction::WorkspaceNext) {
+                    current.saturating_add(1)
+                } else {
+                    current.saturating_sub(1)
+                };
+                self.switch_workspace(&output, target);
+            }
+
+            KeyAction::Workspace(n) => {
+                if let Some(output) = self.focused_output() {
+                    self.switch_workspace(&output, n as u32);
+                }
+            }
+
+            KeyAction::ResizeWidthUp => self.resize_width(40.0),
+
+            KeyAction::ResizeWidthDown => self.resize_width(-40.0),
+
+            KeyAction::ToggleFullscreen => self.toggle_fullscreen(),
+
+            KeyAction::ToggleMaximize => self.toggle_maximize(),
 
             _ => unreachable!(
                 "Common key action handler encountered backend specific action {:?}",
@@ -202,40 +248,52 @@ impl<BackendData: Backend> AnvilState<BackendData> {
             .unwrap_or(false);
 
         let action = keyboard
-            .input(self, keycode, state, serial, time, |this, modifiers, handle| {
-                let modified = handle.modified_sym();
-                let raw = handle.raw_latin_sym_or_raw_current_sym();
+            .input(
+                self,
+                keycode,
+                state,
+                serial,
+                time,
+                |this, modifiers, handle| {
+                    let modified = handle.modified_sym();
+                    let raw = handle.raw_latin_sym_or_raw_current_sym();
 
-                debug!(
-                    ?state,
-                    mods = ?modifiers,
-                    keysym = ::xkbcommon::xkb::keysym_get_name(modified),
-                    "keysym"
-                );
+                    debug!(
+                        ?state,
+                        mods = ?modifiers,
+                        keysym = ::xkbcommon::xkb::keysym_get_name(modified),
+                        "keysym"
+                    );
 
-                if !pressed && !this.suppressed_keys.contains(&keycode) {
-                    return FilterResult::Forward;
-                }
-
-                if pressed {
-                    if !inhibited {
-                        let action = process_keyboard_shortcut(&this.config.binds, *modifiers, modified, raw);
-
-                        if action.is_some() {
-                            this.suppressed_keys.insert(keycode);
-                        }
-
-                        action
-                            .map(FilterResult::Intercept)
-                            .unwrap_or(FilterResult::Forward)
-                    } else {
-                        FilterResult::Forward
+                    if !pressed && !this.suppressed_keys.contains(&keycode) {
+                        return FilterResult::Forward;
                     }
-                } else {
-                    this.suppressed_keys.remove(&keycode);
-                    FilterResult::Intercept(KeyAction::None)
-                }
-            })
+
+                    if pressed {
+                        if !inhibited {
+                            let action = process_keyboard_shortcut(
+                                &this.config.binds,
+                                *modifiers,
+                                modified,
+                                raw,
+                            );
+
+                            if action.is_some() {
+                                this.suppressed_keys.insert(keycode);
+                            }
+
+                            action
+                                .map(FilterResult::Intercept)
+                                .unwrap_or(FilterResult::Forward)
+                        } else {
+                            FilterResult::Forward
+                        }
+                    } else {
+                        this.suppressed_keys.remove(&keycode);
+                        FilterResult::Intercept(KeyAction::None)
+                    }
+                },
+            )
             .unwrap_or(KeyAction::None);
 
         self.update_cursor_for_no_csd();
@@ -252,7 +310,10 @@ impl<BackendData: Backend> AnvilState<BackendData> {
             self.update_keyboard_focus(self.pointer.current_location(), serial);
         };
 
-        if self.config.window.prefer_no_csd && wl_pointer::ButtonState::Pressed == state && button == 0x110 {
+        if self.config.window.prefer_no_csd
+            && wl_pointer::ButtonState::Pressed == state
+            && button == 0x110
+        {
             let resize_modifier = &self.config.window.resize_modifier;
             if !resize_modifier.is_empty() {
                 let keyboard = self.seat.get_keyboard().unwrap();
@@ -267,7 +328,11 @@ impl<BackendData: Backend> AnvilState<BackendData> {
 
                 if modifier_pressed {
                     let location = self.pointer.current_location();
-                    if let Some((window, window_loc)) = self.space.element_under(location).map(|(w, p)| (w.clone(), p)) {
+                    if let Some((window, window_loc)) = self
+                        .space
+                        .element_under(location)
+                        .map(|(w, p)| (w.clone(), p))
+                    {
                         let geometry = window.geometry();
                         let window_size = geometry.size;
 
@@ -276,23 +341,80 @@ impl<BackendData: Backend> AnvilState<BackendData> {
 
                         let edges = detect_resize_edges(rel_x, rel_y, window_size.w, window_size.h);
 
+                        let layout_active =
+                            self.config.layout.layout != LayoutType::Floating;
+
+                        if layout_active {
+                            // Tiling layout active: the modifier+mouse gestures
+                            // are limited to adjusting the window's column width
+                            // (left/right edges, the other windows move to make
+                            // room) and reordering the window within the layout
+                            // (anywhere else on the window).
+                            let pointer = self.pointer.clone();
+                            let start_data = smithay::input::pointer::GrabStartData {
+                                focus: None,
+                                button: 0x110,
+                                location,
+                            };
+
+                            if edges.intersects(ResizeEdge::LEFT | ResizeEdge::RIGHT) {
+                                let initial_width = window
+                                    .decoration_state()
+                                    .layout
+                                    .width_override
+                                    .unwrap_or(window_size.w as f64);
+                                let grab = PointerWidthResizeGrab {
+                                    start_data,
+                                    window: window.clone(),
+                                    initial_width,
+                                };
+                                use smithay::input::pointer::Focus;
+                                pointer.set_grab(self, grab, serial, Focus::Clear);
+                                pointer.frame(self);
+                                return;
+                            } else {
+                                // Detach the window from the layout while dragging
+                                // so it can follow the cursor; on release it is
+                                // re-inserted at the slot under its final position.
+                                {
+                                    let mut st = window.decoration_state();
+                                    let lws = &mut st.layout;
+                                    lws.is_floating = true;
+                                    lws.move_anim = None;
+                                    lws.target = None;
+                                }
+                                let grab = PointerLayoutMoveGrab {
+                                    start_data,
+                                    window: window.clone(),
+                                    initial_window_location: window_loc,
+                                };
+                                use smithay::input::pointer::Focus;
+                                pointer.set_grab(self, grab, serial, Focus::Clear);
+                                pointer.frame(self);
+                                return;
+                            }
+                        }
+
                         if !edges.is_empty() {
                             let initial_window_location = window_loc;
                             let initial_window_size = window_size;
 
                             if let Some(surface) = window.wl_surface() {
-                                smithay::wayland::compositor::with_states(&surface, move |states| {
-                                    states
-                                        .data_map
-                                        .get::<RefCell<SurfaceData>>()
-                                        .unwrap()
-                                        .borrow_mut()
-                                        .resize_state = ResizeState::Resizing(ResizeData {
-                                        edges,
-                                        initial_window_location,
-                                        initial_window_size,
-                                    });
-                                });
+                                smithay::wayland::compositor::with_states(
+                                    &surface,
+                                    move |states| {
+                                        states
+                                            .data_map
+                                            .get::<RefCell<SurfaceData>>()
+                                            .unwrap()
+                                            .borrow_mut()
+                                            .resize_state = ResizeState::Resizing(ResizeData {
+                                            edges,
+                                            initial_window_location,
+                                            initial_window_size,
+                                        });
+                                    },
+                                );
                             }
 
                             let pointer = self.pointer.clone();
@@ -379,8 +501,8 @@ impl<BackendData: Backend> AnvilState<BackendData> {
                     .get::<FullscreenSurface>()
                     .and_then(|f| f.get())
                 {
-                    if let Some((_, _)) =
-                        window.surface_under(location - output_geo.loc.to_f64(), WindowSurfaceType::ALL)
+                    if let Some((_, _)) = window
+                        .surface_under(location - output_geo.loc.to_f64(), WindowSurfaceType::ALL)
                     {
                         #[cfg(feature = "xwayland")]
                         if let Some(surface) = window.0.x11_surface() {
@@ -394,7 +516,9 @@ impl<BackendData: Backend> AnvilState<BackendData> {
                 let layers = layer_map_for_output(output);
                 if let Some(layer) = layers
                     .layer_under(WlrLayer::Overlay, location - output_geo.loc.to_f64())
-                    .or_else(|| layers.layer_under(WlrLayer::Top, location - output_geo.loc.to_f64()))
+                    .or_else(|| {
+                        layers.layer_under(WlrLayer::Top, location - output_geo.loc.to_f64())
+                    })
                 {
                     if layer.can_receive_keyboard_focus() {
                         if let Some((_, _)) = layer.surface_under(
@@ -410,13 +534,25 @@ impl<BackendData: Backend> AnvilState<BackendData> {
                 }
             }
 
-            if let Some((window, _)) = self.space.element_under(location).map(|(w, p)| (w.clone(), p)) {
+            if let Some((window, _)) = self
+                .space
+                .element_under(location)
+                .map(|(w, p)| (w.clone(), p))
+            {
+                // Ignore windows on inactive workspaces (invisible).
+                if window.decoration_state().hidden {
+                    return;
+                }
                 self.space.raise_element(&window, true);
                 #[cfg(feature = "xwayland")]
                 if let Some(surface) = window.0.x11_surface() {
                     self.xwm.as_mut().unwrap().raise_window(surface).unwrap();
                 }
                 keyboard.set_focus(self, Some(window.into()), serial);
+                // Re-run the layout so scrollable/focus-following layouts (e.g. the
+                // niri-style scrolling layout in the config) pan the view to the
+                // focused window.
+                self.arrange_layout();
                 return;
             }
 
@@ -425,7 +561,9 @@ impl<BackendData: Backend> AnvilState<BackendData> {
                 let layers = layer_map_for_output(output);
                 if let Some(layer) = layers
                     .layer_under(WlrLayer::Bottom, location - output_geo.loc.to_f64())
-                    .or_else(|| layers.layer_under(WlrLayer::Background, location - output_geo.loc.to_f64()))
+                    .or_else(|| {
+                        layers.layer_under(WlrLayer::Background, location - output_geo.loc.to_f64())
+                    })
                 {
                     if layer.can_receive_keyboard_focus() {
                         if let Some((_, _)) = layer.surface_under(
@@ -510,9 +648,9 @@ impl<BackendData: Backend> AnvilState<BackendData> {
     }
 
     fn on_pointer_axis<B: InputBackend>(&mut self, evt: B::PointerAxisEvent) {
-        let horizontal_amount = evt
-            .amount(input::Axis::Horizontal)
-            .unwrap_or_else(|| evt.amount_v120(input::Axis::Horizontal).unwrap_or(0.0) * 15.0 / 120.);
+        let horizontal_amount = evt.amount(input::Axis::Horizontal).unwrap_or_else(|| {
+            evt.amount_v120(input::Axis::Horizontal).unwrap_or(0.0) * 15.0 / 120.
+        });
         let vertical_amount = evt
             .amount(input::Axis::Vertical)
             .unwrap_or_else(|| evt.amount_v120(input::Axis::Vertical).unwrap_or(0.0) * 15.0 / 120.);
@@ -522,14 +660,16 @@ impl<BackendData: Backend> AnvilState<BackendData> {
         {
             let mut frame = AxisFrame::new(evt.time_msec()).source(evt.source());
             if horizontal_amount != 0.0 {
-                frame = frame.relative_direction(Axis::Horizontal, evt.relative_direction(Axis::Horizontal));
+                frame = frame
+                    .relative_direction(Axis::Horizontal, evt.relative_direction(Axis::Horizontal));
                 frame = frame.value(Axis::Horizontal, horizontal_amount);
                 if let Some(discrete) = horizontal_amount_discrete {
                     frame = frame.v120(Axis::Horizontal, discrete as i32);
                 }
             }
             if vertical_amount != 0.0 {
-                frame = frame.relative_direction(Axis::Vertical, evt.relative_direction(Axis::Vertical));
+                frame = frame
+                    .relative_direction(Axis::Vertical, evt.relative_direction(Axis::Vertical));
                 frame = frame.value(Axis::Vertical, vertical_amount);
                 if let Some(discrete) = vertical_amount_discrete {
                     frame = frame.v120(Axis::Vertical, discrete as i32);
@@ -694,7 +834,11 @@ impl<BackendData: Backend> AnvilState<BackendData> {
         }
 
         let location = self.pointer.current_location();
-        if let Some((window, window_loc)) = self.space.element_under(location).map(|(w, p)| (w.clone(), p)) {
+        if let Some((window, window_loc)) = self
+            .space
+            .element_under(location)
+            .map(|(w, p)| (w.clone(), p))
+        {
             let geometry = window.geometry();
             let window_size = geometry.size;
 
@@ -703,7 +847,19 @@ impl<BackendData: Backend> AnvilState<BackendData> {
 
             let edges = detect_resize_edges(rel_x, rel_y, window_size.w, window_size.h);
 
-            if !edges.is_empty() {
+            let layout_active = self.config.layout.layout != LayoutType::Floating;
+
+            if layout_active {
+                // Layout mode: only the left/right edges resize the column width;
+                // everything else reorders the window within the layout.
+                if edges.intersects(ResizeEdge::LEFT) {
+                    self.cursor_status = CursorImageStatus::Named(CursorIcon::WResize);
+                } else if edges.intersects(ResizeEdge::RIGHT) {
+                    self.cursor_status = CursorImageStatus::Named(CursorIcon::EResize);
+                } else {
+                    self.cursor_status = CursorImageStatus::Named(CursorIcon::AllScroll);
+                }
+            } else if !edges.is_empty() {
                 self.cursor_status = CursorImageStatus::Named(edges.cursor_icon());
             } else {
                 // Center zone: show move cursor when modifier is held
@@ -715,7 +871,12 @@ impl<BackendData: Backend> AnvilState<BackendData> {
 
 /// Detect which resize edges are at the given position within a window,
 /// using niri's 1/3 zone approach.
-fn detect_resize_edges(rel_x: f64, rel_y: f64, window_width: i32, window_height: i32) -> ResizeEdge {
+fn detect_resize_edges(
+    rel_x: f64,
+    rel_y: f64,
+    window_width: i32,
+    window_height: i32,
+) -> ResizeEdge {
     let mut edges = ResizeEdge::empty();
     let w = window_width as f64;
     let h = window_height as f64;
@@ -737,7 +898,11 @@ fn detect_resize_edges(rel_x: f64, rel_y: f64, window_width: i32, window_height:
 
 #[cfg(any(feature = "winit", feature = "x11"))]
 impl<BackendData: Backend> AnvilState<BackendData> {
-    pub fn process_input_event_windowed<B: InputBackend>(&mut self, event: InputEvent<B>, output_name: &str) {
+    pub fn process_input_event_windowed<B: InputBackend>(
+        &mut self,
+        event: InputEvent<B>,
+        output_name: &str,
+    ) {
         match event {
             InputEvent::Keyboard { event } => match self.keyboard_key_to_action::<B>(event) {
                 KeyAction::ScaleUp => {
@@ -750,7 +915,12 @@ impl<BackendData: Backend> AnvilState<BackendData> {
 
                     let current_scale = output.current_scale().fractional_scale();
                     let new_scale = current_scale + 0.25;
-                    output.change_current_state(None, None, Some(Scale::Fractional(new_scale)), None);
+                    output.change_current_state(
+                        None,
+                        None,
+                        Some(Scale::Fractional(new_scale)),
+                        None,
+                    );
 
                     crate::shell::fixup_positions(&mut self.space, self.pointer.current_location());
                     self.backend_data.reset_buffers(&output);
@@ -766,7 +936,12 @@ impl<BackendData: Backend> AnvilState<BackendData> {
 
                     let current_scale = output.current_scale().fractional_scale();
                     let new_scale = f64::max(1.0, current_scale - 0.25);
-                    output.change_current_state(None, None, Some(Scale::Fractional(new_scale)), None);
+                    output.change_current_state(
+                        None,
+                        None,
+                        Some(Scale::Fractional(new_scale)),
+                        None,
+                    );
 
                     crate::shell::fixup_positions(&mut self.space, self.pointer.current_location());
                     self.backend_data.reset_buffers(&output);
@@ -804,7 +979,17 @@ impl<BackendData: Backend> AnvilState<BackendData> {
                     | KeyAction::Run(_)
                     | KeyAction::TogglePreview
                     | KeyAction::ToggleDecorations
-                    | KeyAction::Screenshot => self.process_common_key_action(action),
+                    | KeyAction::ToggleFloating
+                    | KeyAction::Screenshot
+                    | KeyAction::FocusNext
+                    | KeyAction::FocusPrev
+                    | KeyAction::WorkspaceNext
+                    | KeyAction::WorkspacePrev
+                    | KeyAction::Workspace(_)
+                    | KeyAction::ResizeWidthUp
+                    | KeyAction::ResizeWidthDown
+                    | KeyAction::ToggleFullscreen
+                    | KeyAction::ToggleMaximize => self.process_common_key_action(action),
 
                     _ => tracing::warn!(
                         ?action,
@@ -877,7 +1062,11 @@ impl<BackendData: Backend> AnvilState<BackendData> {
 
 #[cfg(feature = "udev")]
 impl AnvilState<UdevData> {
-    pub fn process_input_event<B: InputBackend>(&mut self, dh: &DisplayHandle, event: InputEvent<B>) {
+    pub fn process_input_event<B: InputBackend>(
+        &mut self,
+        dh: &DisplayHandle,
+        event: InputEvent<B>,
+    ) {
         match event {
             InputEvent::Keyboard { event, .. } => match self.keyboard_key_to_action::<B>(event) {
                 #[cfg(feature = "udev")]
@@ -926,11 +1115,17 @@ impl AnvilState<UdevData> {
                             output.current_scale().fractional_scale(),
                         );
                         let new_scale = scale + 0.25;
-                        output.change_current_state(None, None, Some(Scale::Fractional(new_scale)), None);
+                        output.change_current_state(
+                            None,
+                            None,
+                            Some(Scale::Fractional(new_scale)),
+                            None,
+                        );
 
                         let rescale = scale / new_scale;
                         let output_location = output_location.to_f64();
-                        let mut pointer_output_location = self.pointer.current_location() - output_location;
+                        let mut pointer_output_location =
+                            self.pointer.current_location() - output_location;
                         pointer_output_location.x *= rescale;
                         pointer_output_location.y *= rescale;
                         let pointer_location = output_location + pointer_output_location;
@@ -965,11 +1160,17 @@ impl AnvilState<UdevData> {
                             output.current_scale().fractional_scale(),
                         );
                         let new_scale = f64::max(1.0, scale - 0.25);
-                        output.change_current_state(None, None, Some(Scale::Fractional(new_scale)), None);
+                        output.change_current_state(
+                            None,
+                            None,
+                            Some(Scale::Fractional(new_scale)),
+                            None,
+                        );
 
                         let rescale = scale / new_scale;
                         let output_location = output_location.to_f64();
-                        let mut pointer_output_location = self.pointer.current_location() - output_location;
+                        let mut pointer_output_location =
+                            self.pointer.current_location() - output_location;
                         pointer_output_location.x *= rescale;
                         pointer_output_location.y *= rescale;
                         let pointer_location = output_location + pointer_output_location;
@@ -1011,7 +1212,10 @@ impl AnvilState<UdevData> {
                             Transform::Flipped270 => Transform::Normal,
                         };
                         output.change_current_state(None, Some(new_transform), None, None);
-                        crate::shell::fixup_positions(&mut self.space, self.pointer.current_location());
+                        crate::shell::fixup_positions(
+                            &mut self.space,
+                            self.pointer.current_location(),
+                        );
                         self.backend_data.reset_buffers(&output);
                     }
                 }
@@ -1028,24 +1232,42 @@ impl AnvilState<UdevData> {
                     | KeyAction::Run(_)
                     | KeyAction::TogglePreview
                     | KeyAction::ToggleDecorations
-                    | KeyAction::Screenshot => self.process_common_key_action(action),
+                    | KeyAction::ToggleFloating
+                    | KeyAction::Screenshot
+                    | KeyAction::FocusNext
+                    | KeyAction::FocusPrev
+                    | KeyAction::WorkspaceNext
+                    | KeyAction::WorkspacePrev
+                    | KeyAction::Workspace(_)
+                    | KeyAction::ResizeWidthUp
+                    | KeyAction::ResizeWidthDown
+                    | KeyAction::ToggleFullscreen
+                    | KeyAction::ToggleMaximize => self.process_common_key_action(action),
 
                     _ => unreachable!(),
                 },
             },
             InputEvent::PointerMotion { event, .. } => self.on_pointer_move::<B>(dh, event),
-            InputEvent::PointerMotionAbsolute { event, .. } => self.on_pointer_move_absolute::<B>(dh, event),
+            InputEvent::PointerMotionAbsolute { event, .. } => {
+                self.on_pointer_move_absolute::<B>(dh, event)
+            }
             InputEvent::PointerButton { event, .. } => self.on_pointer_button::<B>(event),
             InputEvent::PointerAxis { event, .. } => self.on_pointer_axis::<B>(event),
             InputEvent::TabletToolAxis { event, .. } => self.on_tablet_tool_axis::<B>(event),
-            InputEvent::TabletToolProximity { event, .. } => self.on_tablet_tool_proximity::<B>(dh, event),
+            InputEvent::TabletToolProximity { event, .. } => {
+                self.on_tablet_tool_proximity::<B>(dh, event)
+            }
             InputEvent::TabletToolTip { event, .. } => self.on_tablet_tool_tip::<B>(event),
             InputEvent::TabletToolButton { event, .. } => self.on_tablet_button::<B>(event),
             InputEvent::GestureSwipeBegin { event, .. } => self.on_gesture_swipe_begin::<B>(event),
-            InputEvent::GestureSwipeUpdate { event, .. } => self.on_gesture_swipe_update::<B>(event),
+            InputEvent::GestureSwipeUpdate { event, .. } => {
+                self.on_gesture_swipe_update::<B>(event)
+            }
             InputEvent::GestureSwipeEnd { event, .. } => self.on_gesture_swipe_end::<B>(event),
             InputEvent::GesturePinchBegin { event, .. } => self.on_gesture_pinch_begin::<B>(event),
-            InputEvent::GesturePinchUpdate { event, .. } => self.on_gesture_pinch_update::<B>(event),
+            InputEvent::GesturePinchUpdate { event, .. } => {
+                self.on_gesture_pinch_update::<B>(event)
+            }
             InputEvent::GesturePinchEnd { event, .. } => self.on_gesture_pinch_end::<B>(event),
             InputEvent::GestureHoldBegin { event, .. } => self.on_gesture_hold_begin::<B>(event),
             InputEvent::GestureHoldEnd { event, .. } => self.on_gesture_hold_end::<B>(event),
@@ -1064,7 +1286,11 @@ impl AnvilState<UdevData> {
         }
     }
 
-    fn on_pointer_move<B: InputBackend>(&mut self, _dh: &DisplayHandle, evt: B::PointerMotionEvent) {
+    fn on_pointer_move<B: InputBackend>(
+        &mut self,
+        _dh: &DisplayHandle,
+        evt: B::PointerMotionEvent,
+    ) {
         let mut pointer_location = self.pointer.current_location();
         let serial = SCOUNTER.next_serial();
 
@@ -1081,10 +1307,9 @@ impl AnvilState<UdevData> {
             with_pointer_constraint(&surface, &pointer, |constraint| match constraint {
                 Some(constraint) if constraint.is_active() => {
                     // Constraint does not apply if not within region
-                    if !constraint
-                        .region()
-                        .is_none_or(|x| x.contains((pointer_location - *surface_loc).to_i32_round()))
-                    {
+                    if !constraint.region().is_none_or(|x| {
+                        x.contains((pointer_location - *surface_loc).to_i32_round())
+                    }) {
                         return;
                     }
                     match &*constraint {
@@ -1128,7 +1353,9 @@ impl AnvilState<UdevData> {
         // If confined, don't move pointer if it would go outside surface or region
         if pointer_confined {
             if let Some((surface, surface_loc)) = &under {
-                if new_under.as_ref().and_then(|(under, _)| under.wl_surface()) != surface.wl_surface() {
+                if new_under.as_ref().and_then(|(under, _)| under.wl_surface())
+                    != surface.wl_surface()
+                {
                     pointer.frame(self);
                     return;
                 }
@@ -1162,7 +1389,10 @@ impl AnvilState<UdevData> {
             with_pointer_constraint(&under, &pointer, |constraint| match constraint {
                 Some(constraint) if !constraint.is_active() => {
                     let point = (pointer_location - surface_location).to_i32_round();
-                    if constraint.region().is_none_or(|region| region.contains(point)) {
+                    if constraint
+                        .region()
+                        .is_none_or(|region| region.contains(point))
+                    {
                         constraint.activate();
                     }
                 }
@@ -1178,10 +1408,9 @@ impl AnvilState<UdevData> {
     ) {
         let serial = SCOUNTER.next_serial();
 
-        let max_x = self
-            .space
-            .outputs()
-            .fold(0, |acc, o| acc + self.space.output_geometry(o).unwrap().size.w);
+        let max_x = self.space.outputs().fold(0, |acc, o| {
+            acc + self.space.output_geometry(o).unwrap().size.w
+        });
 
         let max_h_output = self
             .space
@@ -1451,10 +1680,9 @@ impl AnvilState<UdevData> {
         }
 
         let (pos_x, pos_y) = pos.into();
-        let max_x = self
-            .space
-            .outputs()
-            .fold(0, |acc, o| acc + self.space.output_geometry(o).unwrap().size.w);
+        let max_x = self.space.outputs().fold(0, |acc, o| {
+            acc + self.space.output_geometry(o).unwrap().size.w
+        });
         let clamped_x = pos_x.clamp(0.0, max_x as f64);
         let max_y = self
             .space
@@ -1488,11 +1716,30 @@ enum KeyAction {
     Run(String),
     /// Switch the current screen
     Screen(usize),
+    /// Focus the next window in the layout
+    FocusNext,
+    /// Focus the previous window in the layout
+    FocusPrev,
+    /// Switch to the next workspace (creating it if needed)
+    WorkspaceNext,
+    /// Switch to the previous workspace
+    WorkspacePrev,
+    /// Switch to a specific workspace
+    Workspace(usize),
+    /// Grow the focused window's column width
+    ResizeWidthUp,
+    /// Shrink the focused window's column width
+    ResizeWidthDown,
+    /// Toggle true fullscreen for the focused window
+    ToggleFullscreen,
+    /// Toggle windowed fullscreen (fills the work area)
+    ToggleMaximize,
     ScaleUp,
     ScaleDown,
     TogglePreview,
     RotateOutput,
     ToggleTint,
+    ToggleFloating,
     ToggleDecorations,
     /// Take a screenshot
     Screenshot,
@@ -1596,10 +1843,12 @@ fn process_keyboard_shortcut(
             }
             other => {
                 let modified_name = xkbcommon::xkb::keysym_get_name(modified);
-                let raw_matches = raw.map(|r| {
-                    let raw_name = xkbcommon::xkb::keysym_get_name(r);
-                    raw_name == other
-                }).unwrap_or(false);
+                let raw_matches = raw
+                    .map(|r| {
+                        let raw_name = xkbcommon::xkb::keysym_get_name(r);
+                        raw_name == other
+                    })
+                    .unwrap_or(false);
                 modified_name == other || raw_matches
             }
         };
@@ -1616,9 +1865,19 @@ fn process_keyboard_shortcut(
                 crate::config::BindAction::ScaleDown => KeyAction::ScaleDown,
                 crate::config::BindAction::RotateOutput => KeyAction::RotateOutput,
                 crate::config::BindAction::ToggleTint => KeyAction::ToggleTint,
-                crate::config::BindAction::VtSwitch(n) => KeyAction::VtSwitch(*n),
-                crate::config::BindAction::Screen(n) => KeyAction::Screen(*n),
-                crate::config::BindAction::Callback(idx) => KeyAction::Callback(*idx),
+                crate::config::BindAction::ToggleFloating => KeyAction::ToggleFloating,
+crate::config::BindAction::VtSwitch(n) => KeyAction::VtSwitch(*n),
+        crate::config::BindAction::Screen(n) => KeyAction::Screen(*n),
+        crate::config::BindAction::FocusNext => KeyAction::FocusNext,
+        crate::config::BindAction::FocusPrev => KeyAction::FocusPrev,
+        crate::config::BindAction::WorkspaceNext => KeyAction::WorkspaceNext,
+        crate::config::BindAction::WorkspacePrev => KeyAction::WorkspacePrev,
+        crate::config::BindAction::Workspace(n) => KeyAction::Workspace(*n),
+        crate::config::BindAction::ResizeWidthUp => KeyAction::ResizeWidthUp,
+        crate::config::BindAction::ResizeWidthDown => KeyAction::ResizeWidthDown,
+        crate::config::BindAction::ToggleFullscreen => KeyAction::ToggleFullscreen,
+        crate::config::BindAction::ToggleMaximize => KeyAction::ToggleMaximize,
+        crate::config::BindAction::Callback(idx) => KeyAction::Callback(*idx),
             });
         }
     }

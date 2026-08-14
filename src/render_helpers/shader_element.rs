@@ -3,13 +3,13 @@ use std::ffi::CString;
 use std::rc::Rc;
 
 use glam::{Mat3, Vec2};
+use smithay::backend::renderer::DebugFlags;
 use smithay::backend::renderer::element::{Element, Id, Kind, RenderElement, UnderlyingStorage};
 use smithay::backend::renderer::gles::{
-    ffi, link_program, Capability, GlesError, GlesFrame, GlesRenderer, GlesTexture, Uniform,
-    UniformDesc, UniformName,
+    Capability, GlesError, GlesFrame, GlesRenderer, GlesTexture, Uniform, UniformDesc, UniformName,
+    ffi, link_program,
 };
 use smithay::backend::renderer::utils::{CommitCounter, OpaqueRegions};
-use smithay::backend::renderer::DebugFlags;
 use smithay::utils::user_data::UserDataMap;
 use smithay::utils::{Buffer, Logical, Physical, Point, Rectangle, Scale, Size};
 
@@ -118,12 +118,16 @@ unsafe fn compile_program(
         debug: ShaderProgramInternal {
             program: debug_program,
             uniform_matrix: unsafe { gl.GetUniformLocation(debug_program, matrix.as_ptr()) },
-            uniform_tex_matrix: unsafe { gl.GetUniformLocation(debug_program, tex_matrix.as_ptr()) },
+            uniform_tex_matrix: unsafe {
+                gl.GetUniformLocation(debug_program, tex_matrix.as_ptr())
+            },
             uniform_size: unsafe { gl.GetUniformLocation(debug_program, size.as_ptr()) },
             uniform_scale: unsafe { gl.GetUniformLocation(debug_program, scale.as_ptr()) },
             uniform_alpha: unsafe { gl.GetUniformLocation(debug_program, alpha.as_ptr()) },
             attrib_vert: unsafe { gl.GetAttribLocation(debug_program, vert.as_ptr()) },
-            attrib_vert_position: unsafe { gl.GetAttribLocation(debug_program, vert_position.as_ptr()) },
+            attrib_vert_position: unsafe {
+                gl.GetAttribLocation(debug_program, vert_position.as_ptr())
+            },
             additional_uniforms: additional_uniforms
                 .iter()
                 .map(|uniform| {

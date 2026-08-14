@@ -1,13 +1,21 @@
 use std::collections::HashMap;
 use std::fs;
 use std::path::PathBuf;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
-use mlua::{Lua, Result as LuaResult, Table, Value, Function};
-use notify::{RecommendedWatcher, RecursiveMode, Watcher, Event, EventKind};
-use smithay::reexports::calloop::{channel, timer::{Timer, TimeoutAction}};
+use mlua::{Function, Lua, Result as LuaResult, Table, Value};
+use notify::{Event, EventKind, RecommendedWatcher, RecursiveMode, Watcher};
+use smithay::backend::renderer::gles::{Uniform, UniformName, UniformValue};
+use smithay::reexports::calloop::{
+    channel,
+    timer::{TimeoutAction, Timer},
+};
 use tracing::{info, warn};
+
+/// Monotonic counter used to invalidate compiled custom shaders on config reload.
+static SHADER_GEN: AtomicU64 = AtomicU64::new(0);
 
 const CONFIG_DIR_NAME: &str = "bakawm";
 const CONFIG_FILE_NAME: &str = "config.lua";
@@ -21,10 +29,15 @@ pub struct Config {
     pub window: WindowConfig,
     pub blur: BlurConfig,
     pub animations: AnimationsConfig,
+    pub layout: LayoutConfig,
+    pub custom_shaders: Vec<CustomShaderConfig>,
     pub window_rules: Vec<WindowRule>,
     pub layer_rules: Vec<LayerRule>,
     pub init_commands: Vec<String>,
     pub init_shell_commands: Vec<String>,
+    /// Monotonic counter bumped on every config load/reload.
+    /// Used to invalidate compiled custom shaders.
+    pub shader_gen: u64,
     /// Lua runtime state with callback functions for `BindAction::Callback`.
     /// Not cloned on config reload — the new config brings its own `LuaConfig`.
     pub lua_config: Option<Box<LuaConfig>>,
@@ -40,10 +53,13 @@ impl Clone for Config {
             window: self.window.clone(),
             blur: self.blur.clone(),
             animations: self.animations.clone(),
+            layout: self.layout,
+            custom_shaders: self.custom_shaders.clone(),
             window_rules: self.window_rules.clone(),
             layer_rules: self.layer_rules.clone(),
             init_commands: self.init_commands.clone(),
             init_shell_commands: self.init_shell_commands.clone(),
+            shader_gen: self.shader_gen,
             // LuaConfig is not cloned — callbacks are not needed across clones
             lua_config: None,
         }
@@ -85,8 +101,27 @@ pub enum BindAction {
     ScaleDown,
     RotateOutput,
     ToggleTint,
+    ToggleFloating,
     VtSwitch(i32),
     Screen(usize),
+    /// Focus the next window in the layout (cycling).
+    FocusNext,
+    /// Focus the previous window in the layout (cycling).
+    FocusPrev,
+    /// Switch to the next workspace (creating it if needed).
+    WorkspaceNext,
+    /// Switch to the previous workspace.
+    WorkspacePrev,
+    /// Switch to a specific workspace index.
+    Workspace(usize),
+    /// Grow the focused window's column width.
+    ResizeWidthUp,
+    /// Shrink the focused window's column width.
+    ResizeWidthDown,
+    /// Toggle true fullscreen (XDG/X11 fullscreen state).
+    ToggleFullscreen,
+    /// Toggle windowed fullscreen: the focused window fills the work area.
+    ToggleMaximize,
     /// Index into `LuaConfig::callbacks` for a custom Lua function.
     Callback(usize),
 }
@@ -120,6 +155,64 @@ impl LuaConfig {
                 self.callbacks.len()
             ))),
         }
+    }
+
+    /// Invoke a custom layout function.
+    ///
+    /// `windows` is `(layout_id, width, height, width_override)` for each window
+    /// (width_override = 0 means unset), `area` is `(x, y, w, h)` of the work
+    /// area. The function returns the target geometry for each window (same
+    /// order as `windows`), or `None` for windows that should not be moved by
+    /// the layout.
+    pub fn invoke_layout(
+        &self,
+        idx: usize,
+        windows: &[(u64, f64, f64, f64)],
+        area: (f64, f64, f64, f64),
+        gap: f64,
+    ) -> LuaResult<Vec<Option<(f64, f64, f64, f64)>>> {
+        let func = self.callbacks.get(idx).ok_or_else(|| {
+            mlua::Error::external(format!(
+                "Layout function index {} out of bounds (max {})",
+                idx,
+                self.callbacks.len()
+            ))
+        })?;
+
+        let lua = &self.lua;
+        let windows_table = lua.create_table()?;
+        for (i, (id, w, h, width_override)) in windows.iter().enumerate() {
+            let entry = lua.create_table()?;
+            entry.set("id", *id)?;
+            entry.set("w", *w)?;
+            entry.set("h", *h)?;
+            entry.set("width", *width_override)?;
+            windows_table.set(i + 1, entry)?;
+        }
+
+        let area_table = lua.create_table()?;
+        area_table.set("x", area.0)?;
+        area_table.set("y", area.1)?;
+        area_table.set("w", area.2)?;
+        area_table.set("h", area.3)?;
+        area_table.set("gap", gap)?;
+
+        let result: Table = func.call::<Table>((windows_table, area_table))?;
+
+        let mut out = Vec::with_capacity(windows.len());
+        for i in 0..windows.len() {
+            match result.get::<Option<Table>>(i + 1)? {
+                Some(t) => {
+                    let x = t.get::<f64>("x")?;
+                    let y = t.get::<f64>("y")?;
+                    let w = t.get::<f64>("w")?;
+                    let h = t.get::<f64>("h")?;
+                    out.push(Some((x, y, w, h)));
+                }
+                None => out.push(None),
+            }
+        }
+        Ok(out)
     }
 }
 
@@ -222,6 +315,10 @@ pub struct WindowConfig {
     pub shadow: ShadowConfig,
     pub corner_radius: CornerRadius,
     pub resize_modifier: String,
+    /// Whether the window floats freely (not managed by the layout engine).
+    pub floating: bool,
+    /// Name of a custom shader (from `bk.shader`) applied to this window.
+    pub shader: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -305,6 +402,8 @@ pub struct PartialWindowConfig {
     pub shadow: Option<ShadowConfig>,
     pub corner_radius: Option<CornerRadius>,
     pub resize_modifier: Option<String>,
+    pub floating: Option<bool>,
+    pub shader: Option<String>,
 }
 
 impl PartialWindowConfig {
@@ -315,7 +414,13 @@ impl PartialWindowConfig {
             border: self.border.as_ref().unwrap_or(&base.border).clone(),
             shadow: self.shadow.unwrap_or(base.shadow),
             corner_radius: self.corner_radius.unwrap_or(base.corner_radius),
-            resize_modifier: self.resize_modifier.as_ref().unwrap_or(&base.resize_modifier).clone(),
+            resize_modifier: self
+                .resize_modifier
+                .as_ref()
+                .unwrap_or(&base.resize_modifier)
+                .clone(),
+            floating: self.floating.unwrap_or(base.floating),
+            shader: self.shader.clone().or_else(|| base.shader.clone()),
         }
     }
 }
@@ -347,6 +452,8 @@ pub struct AnimationsConfig {
     pub window_open: WindowAnimConfig,
     /// Window close animation config.
     pub window_close: WindowAnimConfig,
+    /// Workspace-switch fade animation config.
+    pub workspace_switch: WindowAnimConfig,
 }
 
 /// Per-animation config for window open/close.
@@ -390,6 +497,12 @@ impl Default for AnimationsConfig {
                 curve: AnimCurve::EaseOutCubic,
                 scale: 0.0,
             },
+            workspace_switch: WindowAnimConfig {
+                enable: true,
+                duration_ms: 200,
+                curve: AnimCurve::EaseOutCubic,
+                scale: 1.0,
+            },
         }
     }
 }
@@ -409,6 +522,182 @@ impl AnimCurve {
     }
 }
 
+/// A generic animation specifier: off, an easing curve, or a spring.
+///
+/// Used for layout adjustment animations.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum AnimConfig {
+    /// No animation — values snap instantly.
+    Off,
+    /// An easing curve with a duration.
+    Curve { duration_ms: u32, curve: AnimCurve },
+    /// A spring with the given parameters.
+    Spring {
+        damping_ratio: f64,
+        stiffness: f64,
+        epsilon: f64,
+    },
+}
+
+impl AnimConfig {
+    /// Convert to a runtime [`crate::animation::Animation`] between `from` and `to`.
+    pub fn to_animation(&self, from: f64, to: f64) -> crate::animation::Animation {
+        match self {
+            AnimConfig::Off => crate::animation::Animation::new_off(),
+            AnimConfig::Curve { duration_ms, curve } => {
+                crate::animation::Animation::ease(from, to, *duration_ms, curve.to_curve())
+            }
+            AnimConfig::Spring {
+                damping_ratio,
+                stiffness,
+                epsilon,
+            } => {
+                let params =
+                    crate::animation::SpringParams::new(*damping_ratio, *stiffness, *epsilon);
+                let spring = crate::animation::Spring {
+                    from,
+                    to,
+                    initial_velocity: 0.,
+                    params,
+                };
+                crate::animation::Animation::spring(from, to, spring)
+            }
+        }
+    }
+}
+
+/// Built-in or user-defined layout engine.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum LayoutType {
+    /// No layout — windows float freely (default, preserves classic behavior).
+    Floating,
+    /// Vertical columns, one window per column (niri-style).
+    Columns,
+    /// Uniform grid, filling rows left-to-right.
+    Grid,
+    /// One master window on the left plus a stack of the rest on the right.
+    MasterStack,
+    /// All windows maximized to the work area.
+    Maximize,
+    /// A user-defined Lua function (see `LayoutConfig::custom_fn`).
+    Custom,
+}
+
+/// Output work-area margins.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Margins {
+    pub top: f64,
+    pub bottom: f64,
+    pub left: f64,
+    pub right: f64,
+}
+
+impl Default for Margins {
+    fn default() -> Self {
+        Self {
+            top: 0.,
+            bottom: 0.,
+            left: 0.,
+            right: 0.,
+        }
+    }
+}
+
+/// Animation configuration for layout adjustments.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct LayoutAnimConfig {
+    /// Animation used when windows move to new positions.
+    pub move_anim: AnimConfig,
+    /// Animation used when windows change size.
+    pub resize_anim: AnimConfig,
+}
+
+impl Default for LayoutAnimConfig {
+    fn default() -> Self {
+        Self {
+            move_anim: AnimConfig::Curve {
+                duration_ms: 250,
+                curve: AnimCurve::EaseOutCubic,
+            },
+            resize_anim: AnimConfig::Curve {
+                duration_ms: 200,
+                curve: AnimCurve::EaseOutCubic,
+            },
+        }
+    }
+}
+
+/// The tiling layout configuration.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct LayoutConfig {
+    pub layout: LayoutType,
+    /// Gap between windows, in logical pixels.
+    pub gap: f64,
+    /// Margins around the work area.
+    pub margins: Margins,
+    /// Fraction of the work area taken by the master in `MasterStack`.
+    pub master_ratio: f64,
+    /// Animation used for layout adjustments.
+    pub animation: LayoutAnimConfig,
+    /// Index into `LuaConfig::callbacks` for a custom layout function
+    /// (used when `layout == LayoutType::Custom`).
+    pub custom_fn: Option<usize>,
+}
+
+impl Default for LayoutConfig {
+    fn default() -> Self {
+        Self {
+            layout: LayoutType::Floating,
+            gap: 8.,
+            margins: Margins::default(),
+            master_ratio: 0.5,
+            animation: LayoutAnimConfig::default(),
+            custom_fn: None,
+        }
+    }
+}
+
+/// How a custom shader fragment is applied.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum CustomShaderKind {
+    /// The user writes a `vec4 postprocess(vec4 color)` function. The compositor
+    /// wraps it in the standard texture pipeline (sampling, corner-radius clip, alpha).
+    PostProcess,
+    /// The user supplies the complete fragment shader following the smithay
+    /// texture-program contract (`//_DEFINES`, `tex`, `v_coords`, `alpha`).
+    Full,
+}
+
+/// A single shader uniform parameter.
+#[derive(Debug, Clone)]
+pub struct ShaderUniform {
+    pub name: String,
+    pub value: UniformValue,
+}
+
+impl ShaderUniform {
+    /// Build a `UniformName` for this parameter.
+    pub fn name(&self) -> UniformName<'static> {
+        UniformName::new(self.name.clone(), self.value.type_())
+    }
+
+    /// Build a `Uniform` for this parameter.
+    pub fn uniform(&self) -> Uniform<'static> {
+        Uniform::new(self.name.clone(), self.value.clone())
+    }
+}
+
+/// A user-defined shader (defined via `bk.shader`).
+#[derive(Debug, Clone)]
+pub struct CustomShaderConfig {
+    pub name: String,
+    pub kind: CustomShaderKind,
+    /// GLSL fragment source (already resolved from inline text or a file path).
+    pub fragment: String,
+    /// Static uniform parameters to upload with the shader.
+    pub uniforms: Vec<ShaderUniform>,
+}
+
 impl Default for WindowConfig {
     fn default() -> Self {
         WindowConfig {
@@ -421,6 +710,8 @@ impl Default for WindowConfig {
             shadow: ShadowConfig::default(),
             corner_radius: CornerRadius::default(),
             resize_modifier: "Ctrl".into(),
+            floating: false,
+            shader: None,
         }
     }
 }
@@ -509,10 +800,13 @@ impl Default for Config {
             window: WindowConfig::default(),
             blur: BlurConfig::default(),
             animations: AnimationsConfig::default(),
+            layout: LayoutConfig::default(),
+            custom_shaders: Vec::new(),
             window_rules: Vec::new(),
             layer_rules: Vec::new(),
             init_commands: Vec::new(),
             init_shell_commands: Vec::new(),
+            shader_gen: 0,
             lua_config: None,
         }
     }
@@ -520,7 +814,11 @@ impl Default for Config {
 
 impl Config {
     /// Find the first window rule matching the given app_id and title.
-    pub fn find_window_rule(&self, app_id: Option<&str>, title: Option<&str>) -> Option<&WindowRule> {
+    pub fn find_window_rule(
+        &self,
+        app_id: Option<&str>,
+        title: Option<&str>,
+    ) -> Option<&WindowRule> {
         self.window_rules.iter().find(|rule| {
             let matches = match (&rule.app_id, &rule.title) {
                 (Some(rule_id), Some(rule_title)) => {
@@ -550,7 +848,10 @@ pub fn load_config() -> Config {
     let path = config_path();
 
     if !path.exists() {
-        info!("No config file found at {:?}, creating default config", path);
+        info!(
+            "No config file found at {:?}, creating default config",
+            path
+        );
         if let Err(e) = create_default_config() {
             warn!("Failed to create default config: {}", e);
             return Config::default();
@@ -559,11 +860,14 @@ pub fn load_config() -> Config {
         return match parse_lua_config(&path) {
             Ok(config) => {
                 info!("Loaded config from {:?}", path);
-                config
+                finalize_config(config)
             }
             Err(e) => {
-                warn!("Failed to parse newly created config: {}, using defaults", e);
-                Config::default()
+                warn!(
+                    "Failed to parse newly created config: {}, using defaults",
+                    e
+                );
+                finalize_config(Config::default())
             }
         };
     }
@@ -579,11 +883,14 @@ pub fn load_config() -> Config {
                 config.animations.window_close.duration_ms,
                 config.animations.window_close.curve,
             );
-            config
+            finalize_config(config)
         }
         Err(e) => {
-            warn!("Failed to parse config file {:?}: {}, using defaults", path, e);
-            Config::default()
+            warn!(
+                "Failed to parse config file {:?}: {}, using defaults",
+                path, e
+            );
+            finalize_config(Config::default())
         }
     }
 }
@@ -607,13 +914,23 @@ pub fn reload_config(current: &Config) -> Config {
                 new_config.animations.window_close.duration_ms,
                 new_config.animations.window_close.curve,
             );
-            new_config
+            finalize_config(new_config)
         }
         Err(e) => {
-            warn!("Failed to reload config file {:?}: {}, keeping current config", path, e);
+            warn!(
+                "Failed to reload config file {:?}: {}, keeping current config",
+                path, e
+            );
             current.clone()
         }
     }
+}
+
+/// Assign a fresh `shader_gen` to a freshly parsed config so that compiled
+/// custom shaders get invalidated on reload.
+fn finalize_config(mut config: Config) -> Config {
+    config.shader_gen = SHADER_GEN.fetch_add(1, Ordering::Relaxed) + 1;
+    config
 }
 
 pub fn spawn_config_watcher<B: crate::state::Backend + 'static>(
@@ -625,9 +942,7 @@ pub fn spawn_config_watcher<B: crate::state::Backend + 'static>(
         move |res: Result<Event, notify::Error>| {
             if let Ok(event) = res {
                 match event.kind {
-                    EventKind::Create(_)
-                    | EventKind::Modify(_)
-                    | EventKind::Remove(_) => {
+                    EventKind::Create(_) | EventKind::Modify(_) | EventKind::Remove(_) => {
                         let _ = sender.send(());
                     }
                     _ => {}
@@ -705,6 +1020,9 @@ fn parse_lua_config(path: &PathBuf) -> LuaResult<Config> {
     let collected_window: Arc<Mutex<Option<WindowConfig>>> = Arc::new(Mutex::new(None));
     let collected_blur: Arc<Mutex<Option<BlurConfig>>> = Arc::new(Mutex::new(None));
     let collected_animations: Arc<Mutex<Option<AnimationsConfig>>> = Arc::new(Mutex::new(None));
+    let collected_layout: Arc<Mutex<Option<LayoutConfig>>> = Arc::new(Mutex::new(None));
+    let collected_custom_shaders: Arc<Mutex<Vec<CustomShaderConfig>>> =
+        Arc::new(Mutex::new(Vec::new()));
     let collected_window_rules: Arc<Mutex<Vec<WindowRule>>> = Arc::new(Mutex::new(Vec::new()));
     let collected_layer_rules: Arc<Mutex<Vec<LayerRule>>> = Arc::new(Mutex::new(Vec::new()));
     let spawn_commands: Arc<Mutex<Vec<String>>> = Arc::new(Mutex::new(Vec::new()));
@@ -717,23 +1035,28 @@ fn parse_lua_config(path: &PathBuf) -> LuaResult<Config> {
     let bind_fn = {
         let collected_binds = collected_binds.clone();
         let callbacks = callbacks.clone();
-        lua.create_function(move |lua, (modifiers, key, action): (Value, String, Value)| {
-            let mods = parse_modifiers_value(lua, modifiers)?;
-            let bind_action = parse_action_value(lua, &callbacks, action)?;
-            collected_binds.lock().unwrap().push(BindConfig {
-                modifiers: mods,
-                key,
-                action: bind_action,
-            });
-            Ok(())
-        })?
+        lua.create_function(
+            move |lua, (modifiers, key, action): (Value, String, Value)| {
+                let mods = parse_modifiers_value(lua, modifiers)?;
+                let bind_action = parse_action_value(lua, &callbacks, action)?;
+                collected_binds.lock().unwrap().push(BindConfig {
+                    modifiers: mods,
+                    key,
+                    action: bind_action,
+                });
+                Ok(())
+            },
+        )?
     };
 
     // bk.output(config_table)
     let output_fn = {
         let collected_outputs = collected_outputs.clone();
         lua.create_function(move |_, t: Table| {
-            collected_outputs.lock().unwrap().push(parse_single_output(&t)?);
+            collected_outputs
+                .lock()
+                .unwrap()
+                .push(parse_single_output(&t)?);
             Ok(())
         })?
     };
@@ -777,6 +1100,27 @@ fn parse_lua_config(path: &PathBuf) -> LuaResult<Config> {
         })?
     };
 
+    // bk.layout(config_table)
+    let layout_fn = {
+        let collected_layout = collected_layout.clone();
+        let callbacks = callbacks.clone();
+        lua.create_function(move |_, t: Table| {
+            let l = parse_layout(&t, &callbacks)?;
+            *collected_layout.lock().unwrap() = Some(l);
+            Ok(())
+        })?
+    };
+
+    // bk.shader(config_table)
+    let shader_fn = {
+        let collected_custom_shaders = collected_custom_shaders.clone();
+        lua.create_function(move |_, t: Table| {
+            let s = parse_custom_shader(&t)?;
+            collected_custom_shaders.lock().unwrap().push(s);
+            Ok(())
+        })?
+    };
+
     // bk.cursor(config_table)
     let cursor_fn = {
         let collected_cursor = collected_cursor.clone();
@@ -791,7 +1135,10 @@ fn parse_lua_config(path: &PathBuf) -> LuaResult<Config> {
     let window_rule_fn = {
         let collected_window_rules = collected_window_rules.clone();
         lua.create_function(move |_, t: Table| {
-            collected_window_rules.lock().unwrap().push(parse_single_window_rule(&t)?);
+            collected_window_rules
+                .lock()
+                .unwrap()
+                .push(parse_single_window_rule(&t)?);
             Ok(())
         })?
     };
@@ -800,7 +1147,10 @@ fn parse_lua_config(path: &PathBuf) -> LuaResult<Config> {
     let layer_rule_fn = {
         let collected_layer_rules = collected_layer_rules.clone();
         lua.create_function(move |_, t: Table| {
-            collected_layer_rules.lock().unwrap().push(parse_single_layer_rule(&t)?);
+            collected_layer_rules
+                .lock()
+                .unwrap()
+                .push(parse_single_layer_rule(&t)?);
             Ok(())
         })?
     };
@@ -841,12 +1191,16 @@ fn parse_lua_config(path: &PathBuf) -> LuaResult<Config> {
     let quit_fn = lua.create_function(move |lua, ()| make_action(&lua, "Quit"))?;
     let close_window_fn = lua.create_function(move |lua, ()| make_action(&lua, "CloseWindow"))?;
     let screenshot_fn = lua.create_function(move |lua, ()| make_action(&lua, "Screenshot"))?;
-    let toggle_decorations_fn = lua.create_function(move |lua, ()| make_action(&lua, "ToggleDecorations"))?;
-    let toggle_preview_fn = lua.create_function(move |lua, ()| make_action(&lua, "TogglePreview"))?;
+    let toggle_decorations_fn =
+        lua.create_function(move |lua, ()| make_action(&lua, "ToggleDecorations"))?;
+    let toggle_preview_fn =
+        lua.create_function(move |lua, ()| make_action(&lua, "TogglePreview"))?;
     let scale_up_fn = lua.create_function(move |lua, ()| make_action(&lua, "ScaleUp"))?;
     let scale_down_fn = lua.create_function(move |lua, ()| make_action(&lua, "ScaleDown"))?;
     let rotate_output_fn = lua.create_function(move |lua, ()| make_action(&lua, "RotateOutput"))?;
     let toggle_tint_fn = lua.create_function(move |lua, ()| make_action(&lua, "ToggleTint"))?;
+    let toggle_floating_fn =
+        lua.create_function(move |lua, ()| make_action(&lua, "ToggleFloating"))?;
 
     let exec_fn = lua.create_function(move |lua, args: mlua::Variadic<String>| {
         let table = lua.create_table()?;
@@ -869,6 +1223,26 @@ fn parse_lua_config(path: &PathBuf) -> LuaResult<Config> {
         Ok(table)
     })?;
 
+    let focus_next_fn = lua.create_function(move |lua, ()| make_action(&lua, "FocusNext"))?;
+    let focus_prev_fn = lua.create_function(move |lua, ()| make_action(&lua, "FocusPrev"))?;
+    let workspace_next_fn =
+        lua.create_function(move |lua, ()| make_action(&lua, "WorkspaceNext"))?;
+    let workspace_prev_fn =
+        lua.create_function(move |lua, ()| make_action(&lua, "WorkspacePrev"))?;
+    let workspace_fn = lua.create_function(move |lua, n: usize| {
+        let table = lua.create_table()?;
+        table.set("type", "Workspace")?;
+        table.set("n", n)?;
+        Ok(table)
+    })?;
+    let resize_width_up_fn = lua.create_function(move |lua, ()| make_action(&lua, "ResizeWidthUp"))?;
+    let resize_width_down_fn =
+        lua.create_function(move |lua, ()| make_action(&lua, "ResizeWidthDown"))?;
+    let toggle_fullscreen_fn =
+        lua.create_function(move |lua, ()| make_action(&lua, "ToggleFullscreen"))?;
+    let toggle_maximize_fn =
+        lua.create_function(move |lua, ()| make_action(&lua, "ToggleMaximize"))?;
+
     // ── Assemble bk global table ─────────────────────────────────
     let bk = lua.create_table()?;
     bk.set("bind", bind_fn)?;
@@ -877,6 +1251,8 @@ fn parse_lua_config(path: &PathBuf) -> LuaResult<Config> {
     bk.set("window", window_fn)?;
     bk.set("animations", animations_fn)?;
     bk.set("blur", blur_fn)?;
+    bk.set("layout", layout_fn)?;
+    bk.set("shader", shader_fn)?;
     bk.set("cursor", cursor_fn)?;
     bk.set("window_rule", window_rule_fn)?;
     bk.set("layer_rule", layer_rule_fn)?;
@@ -894,8 +1270,18 @@ fn parse_lua_config(path: &PathBuf) -> LuaResult<Config> {
     bk.set("scale_down", scale_down_fn)?;
     bk.set("rotate_output", rotate_output_fn)?;
     bk.set("toggle_tint", toggle_tint_fn)?;
+    bk.set("toggle_floating", toggle_floating_fn)?;
     bk.set("vt_switch", vt_switch_fn)?;
     bk.set("screen", screen_fn)?;
+    bk.set("focus_next", focus_next_fn)?;
+    bk.set("focus_prev", focus_prev_fn)?;
+    bk.set("workspace_next", workspace_next_fn)?;
+    bk.set("workspace_prev", workspace_prev_fn)?;
+    bk.set("workspace", workspace_fn)?;
+    bk.set("resize_width_up", resize_width_up_fn)?;
+    bk.set("resize_width_down", resize_width_down_fn)?;
+    bk.set("toggle_fullscreen", toggle_fullscreen_fn)?;
+    bk.set("toggle_maximize", toggle_maximize_fn)?;
 
     // Keep `bakawm` as an alias for backward compatibility (spawn/run_sh)
     let bakawm = lua.create_table()?;
@@ -999,6 +1385,18 @@ fn parse_lua_config(path: &PathBuf) -> LuaResult<Config> {
         }
     }
     {
+        let collected = collected_layout.lock().unwrap();
+        if let Some(l) = collected.as_ref() {
+            config.layout = *l;
+        }
+    }
+    {
+        let collected = collected_custom_shaders.lock().unwrap();
+        if !collected.is_empty() {
+            config.custom_shaders = collected.clone();
+        }
+    }
+    {
         let collected = collected_window_rules.lock().unwrap();
         if !collected.is_empty() {
             config.window_rules = collected.clone();
@@ -1042,7 +1440,11 @@ fn parse_modifiers_value(_lua: &Lua, value: Value) -> LuaResult<Vec<String>> {
 
 /// Parse the `action` parameter of `bk.bind()`.
 /// Accepts either an action descriptor table (from bk.quit(), etc.) or a Lua function.
-fn parse_action_value(_lua: &Lua, callbacks: &Arc<Mutex<Vec<Function>>>, value: Value) -> LuaResult<BindAction> {
+fn parse_action_value(
+    _lua: &Lua,
+    callbacks: &Arc<Mutex<Vec<Function>>>,
+    value: Value,
+) -> LuaResult<BindAction> {
     match value {
         Value::Table(t) => {
             // Action descriptor table from bk.quit(), bk.exec(cmd), etc.
@@ -1061,6 +1463,7 @@ fn parse_action_value(_lua: &Lua, callbacks: &Arc<Mutex<Vec<Function>>>, value: 
                 "ScaleDown" => Ok(BindAction::ScaleDown),
                 "RotateOutput" => Ok(BindAction::RotateOutput),
                 "ToggleTint" => Ok(BindAction::ToggleTint),
+                "ToggleFloating" => Ok(BindAction::ToggleFloating),
                 "VtSwitch" => {
                     let n: i32 = t.get("n")?;
                     Ok(BindAction::VtSwitch(n))
@@ -1069,6 +1472,18 @@ fn parse_action_value(_lua: &Lua, callbacks: &Arc<Mutex<Vec<Function>>>, value: 
                     let n: usize = t.get("n")?;
                     Ok(BindAction::Screen(n))
                 }
+                "FocusNext" => Ok(BindAction::FocusNext),
+                "FocusPrev" => Ok(BindAction::FocusPrev),
+                "WorkspaceNext" => Ok(BindAction::WorkspaceNext),
+                "WorkspacePrev" => Ok(BindAction::WorkspacePrev),
+                "Workspace" => {
+                    let n: usize = t.get("n")?;
+                    Ok(BindAction::Workspace(n))
+                }
+                "ResizeWidthUp" => Ok(BindAction::ResizeWidthUp),
+                "ResizeWidthDown" => Ok(BindAction::ResizeWidthDown),
+                "ToggleFullscreen" => Ok(BindAction::ToggleFullscreen),
+                "ToggleMaximize" => Ok(BindAction::ToggleMaximize),
                 other => Err(mlua::Error::external(format!(
                     "Unknown bind action type: {}",
                     other
@@ -1272,6 +1687,8 @@ fn parse_cursor(table: &Table) -> LuaResult<CursorConfig> {
 fn parse_window(table: &Table) -> LuaResult<WindowConfig> {
     let prefer_no_csd: Option<bool> = table.get("prefer_no_csd").ok();
     let resize_modifier: Option<String> = table.get("resize_modifier").ok();
+    let floating: Option<bool> = table.get("floating").ok();
+    let shader: Option<String> = table.get("shader").ok();
 
     let corner_radius = if let Value::Table(cr_table) = table.get::<Value>("corner_radius")? {
         let top_left: Option<f32> = cr_table.get("top_left").ok();
@@ -1312,6 +1729,12 @@ fn parse_window(table: &Table) -> LuaResult<WindowConfig> {
     }
     if let Some(resize_modifier) = resize_modifier {
         window.resize_modifier = resize_modifier;
+    }
+    if let Some(floating) = floating {
+        window.floating = floating;
+    }
+    if let Some(shader) = shader {
+        window.shader = Some(shader);
     }
 
     Ok(window)
@@ -1360,6 +1783,10 @@ fn parse_animations(table: &Table) -> LuaResult<AnimationsConfig> {
 
     if let Value::Table(close_table) = table.get::<Value>("window_close")? {
         animations.window_close = parse_window_anim(&close_table)?;
+    }
+
+    if let Value::Table(ws_table) = table.get::<Value>("workspace_switch")? {
+        animations.workspace_switch = parse_window_anim(&ws_table)?;
     }
 
     Ok(animations)
@@ -1426,6 +1853,244 @@ fn parse_anim_curve(table: &Table) -> LuaResult<AnimCurve> {
     }
 }
 
+/// Parse a generic animation specifier: `{ curve = ..., duration_ms = ... }`,
+/// `{ spring = { damping_ratio = ..., stiffness = ..., epsilon = ... } }`, or
+/// `false` / `"off"` to disable.
+fn parse_anim_config(table: &Table) -> LuaResult<AnimConfig> {
+    // NOTE: use an explicit turbofish here. `let off: Option<Value> =
+    // table.get("off").ok();` silently makes `get` infer `V = Value` (the
+    // `.ok()` sits between the call and the type annotation), so a *missing*
+    // key returns `Some(Value::Nil)` and every animation table would be parsed
+    // as `Off`.
+    let off = table.get::<Option<Value>>("off")?;
+    if off.is_some() {
+        return Ok(AnimConfig::Off);
+    }
+    let enable = table.get::<Option<bool>>("enable")?;
+    if enable == Some(false) {
+        return Ok(AnimConfig::Off);
+    }
+
+    if let Value::Table(spring_table) = table.get::<Value>("spring")? {
+        let damping_ratio: f64 = spring_table.get("damping_ratio").unwrap_or(0.8);
+        let stiffness: f64 = spring_table.get("stiffness").unwrap_or(300.0);
+        let epsilon: f64 = spring_table.get("epsilon").unwrap_or(0.01);
+        return Ok(AnimConfig::Spring {
+            damping_ratio,
+            stiffness,
+            epsilon,
+        });
+    }
+
+    let duration_ms: u32 = table.get("duration_ms").unwrap_or(250);
+    let curve: AnimCurve = match parse_anim_curve(table) {
+        Ok(c) => c,
+        Err(_) => AnimCurve::EaseOutCubic,
+    };
+    Ok(AnimConfig::Curve { duration_ms, curve })
+}
+
+/// Parse a layout animation config: `{ move = {...}, resize = {...} }`.
+fn parse_layout_anim(table: &Table) -> LuaResult<LayoutAnimConfig> {
+    let mut anim = LayoutAnimConfig::default();
+
+    if let Value::Table(move_table) = table.get::<Value>("move")? {
+        anim.move_anim = parse_anim_config(&move_table)?;
+    }
+    if let Value::Table(resize_table) = table.get::<Value>("resize")? {
+        anim.resize_anim = parse_anim_config(&resize_table)?;
+    }
+
+    Ok(anim)
+}
+
+fn parse_layout_type(t: &Table) -> LuaResult<LayoutType> {
+    let layout: String = t.get("type").unwrap_or_else(|_| "floating".to_string());
+    match layout.as_str() {
+        "floating" => Ok(LayoutType::Floating),
+        "columns" => Ok(LayoutType::Columns),
+        "grid" => Ok(LayoutType::Grid),
+        "master-stack" => Ok(LayoutType::MasterStack),
+        "maximize" => Ok(LayoutType::Maximize),
+        "custom" => Ok(LayoutType::Custom),
+        other => Err(mlua::Error::external(format!(
+            "Unknown layout type: {}",
+            other
+        ))),
+    }
+}
+
+fn parse_margins(t: &Table) -> LuaResult<Margins> {
+    let top: f64 = t.get("top").unwrap_or(0.);
+    let bottom: f64 = t.get("bottom").unwrap_or(0.);
+    let left: f64 = t.get("left").unwrap_or(0.);
+    let right: f64 = t.get("right").unwrap_or(0.);
+    Ok(Margins {
+        top,
+        bottom,
+        left,
+        right,
+    })
+}
+
+/// Parse a `bk.layout` config table.
+///
+/// ```lua
+/// bk.layout({ type = "columns", gap = 8, margins = { top = 0, bottom = 0, left = 0, right = 0 },
+///             master_ratio = 0.5,
+///             animation = { move = { duration_ms = 250, curve = "ease-out-cubic" },
+///                           resize = { spring = { damping_ratio = 0.8, stiffness = 300 } } },
+///             fn = function(windows, area) ... end })
+/// ```
+fn parse_layout(t: &Table, callbacks: &Arc<Mutex<Vec<Function>>>) -> LuaResult<LayoutConfig> {
+    let mut layout = LayoutConfig::default();
+
+    layout.layout = parse_layout_type(t)?;
+
+    if let Ok(gap) = t.get::<f64>("gap") {
+        layout.gap = gap.max(0.);
+    }
+    if let Value::Table(margins_table) = t.get::<Value>("margins")? {
+        layout.margins = parse_margins(&margins_table)?;
+    }
+    if let Ok(master_ratio) = t.get::<f64>("master_ratio") {
+        layout.master_ratio = master_ratio.clamp(0.1, 0.9);
+    }
+    if let Value::Table(anim_table) = t.get::<Value>("animation")? {
+        layout.animation = parse_layout_anim(&anim_table)?;
+    }
+
+    if let Value::Function(func) = t.get::<Value>("fn")? {
+        if layout.layout == LayoutType::Custom {
+            let idx = callbacks.lock().unwrap().len();
+            callbacks.lock().unwrap().push(func);
+            layout.custom_fn = Some(idx);
+        } else {
+            return Err(mlua::Error::external(
+                "layout `fn` is only allowed with type = \"custom\"",
+            ));
+        }
+    }
+
+    Ok(layout)
+}
+
+/// Parse a single shader uniform value. Numbers become floats, integers become
+/// ints, booleans become ints (0/1), arrays become vec2/vec3/vec4.
+fn parse_shader_uniform_value(name: String, value: Value) -> LuaResult<ShaderUniform> {
+    let uniform = match value {
+        Value::Number(n) => ShaderUniform {
+            name,
+            value: UniformValue::_1f(n as f32),
+        },
+        Value::Integer(i) => ShaderUniform {
+            name,
+            value: UniformValue::_1i(i as i32),
+        },
+        Value::Boolean(b) => ShaderUniform {
+            name,
+            value: UniformValue::_1i(b as i32),
+        },
+        Value::Table(t) => {
+            let mut vals = Vec::new();
+            for v in t.sequence_values::<Value>() {
+                let v = v?;
+                match v {
+                    Value::Number(n) => vals.push(n as f32),
+                    _ => {
+                        return Err(mlua::Error::external(
+                            "shader uniform arrays must contain numbers",
+                        ));
+                    }
+                }
+            }
+            let value = match vals.as_slice() {
+                [a, b] => UniformValue::_2f(*a, *b),
+                [a, b, c] => UniformValue::_3f(*a, *b, *c),
+                [a, b, c, d] => UniformValue::_4f(*a, *b, *c, *d),
+                _ => {
+                    return Err(mlua::Error::external(
+                        "shader uniform arrays must have 2, 3 or 4 elements",
+                    ));
+                }
+            };
+            ShaderUniform { name, value }
+        }
+        _ => {
+            return Err(mlua::Error::external(format!(
+                "unsupported shader uniform value for `{}`",
+                name
+            )));
+        }
+    };
+    Ok(uniform)
+}
+
+/// Parse a `bk.shader` config table.
+///
+/// ```lua
+/// bk.shader({ name = "sepia",
+///             kind = "postprocess",           -- or "full"
+///             fragment = "sepia.frag",        -- path relative to the config dir
+///             uniforms = { intensity = 0.6 } })
+/// ```
+fn parse_custom_shader(t: &Table) -> LuaResult<CustomShaderConfig> {
+    let name: String = t.get("name")?;
+    let kind_str: String = t.get("kind").unwrap_or_else(|_| "postprocess".to_string());
+    let kind = match kind_str.as_str() {
+        "postprocess" => CustomShaderKind::PostProcess,
+        "full" => CustomShaderKind::Full,
+        other => {
+            return Err(mlua::Error::external(format!(
+                "Unknown shader kind: {} (expected \"postprocess\" or \"full\")",
+                other
+            )));
+        }
+    };
+
+    let fragment: String = t.get("fragment")?;
+    // If the fragment is not inline GLSL (doesn't look like a shader), treat it as
+    // a file path relative to the config directory.
+    let fragment = resolve_fragment_source(&fragment)?;
+
+    let mut uniforms = Vec::new();
+    if let Value::Table(uniforms_table) = t.get::<Value>("uniforms")? {
+        for pair in uniforms_table.pairs::<String, Value>() {
+            let (name, value) = pair?;
+            uniforms.push(parse_shader_uniform_value(name, value)?);
+        }
+    }
+
+    Ok(CustomShaderConfig {
+        name,
+        kind,
+        fragment,
+        uniforms,
+    })
+}
+
+/// Resolve a fragment shader source. If the string looks like a shader body
+/// (contains GLSL keywords) it is used as-is; otherwise it is treated as a file
+/// path relative to the config directory.
+fn resolve_fragment_source(fragment: &str) -> LuaResult<String> {
+    let trimmed = fragment.trim();
+    let looks_like_glsl = trimmed.contains("void main")
+        || trimmed.contains("postprocess")
+        || trimmed.contains("precision ")
+        || trimmed.starts_with("#version")
+        || trimmed.starts_with("#if")
+        || trimmed.starts_with("uniform ");
+
+    if looks_like_glsl {
+        return Ok(fragment.to_string());
+    }
+
+    let path = config_dir().join(trimmed);
+    fs::read_to_string(&path).map_err(|err| {
+        mlua::Error::external(format!("Failed to read shader file {:?}: {err}", path))
+    })
+}
+
 fn parse_window_rules(table: &Table) -> LuaResult<Vec<WindowRule>> {
     let mut rules = Vec::new();
     for pair in table.sequence_values::<Table>() {
@@ -1461,6 +2126,8 @@ fn parse_window_rules(table: &Table) -> LuaResult<Vec<WindowRule>> {
 fn parse_partial_window(table: &Table) -> LuaResult<PartialWindowConfig> {
     let prefer_no_csd: Option<bool> = table.get("prefer_no_csd").ok();
     let resize_modifier: Option<String> = table.get("resize_modifier").ok();
+    let floating: Option<bool> = table.get("floating").ok();
+    let shader: Option<String> = table.get("shader").ok();
 
     let corner_radius = if let Value::Table(cr_table) = table.get::<Value>("corner_radius")? {
         let top_left: Option<f32> = cr_table.get("top_left").ok();
@@ -1474,7 +2141,10 @@ fn parse_partial_window(table: &Table) -> LuaResult<PartialWindowConfig> {
             bottom_left: bottom_left.unwrap_or(0.0),
         })
     } else {
-        table.get::<f32>("corner_radius").ok().map(CornerRadius::from)
+        table
+            .get::<f32>("corner_radius")
+            .ok()
+            .map(CornerRadius::from)
     };
 
     let border = if let Value::Table(border_table) = table.get::<Value>("border")? {
@@ -1495,6 +2165,8 @@ fn parse_partial_window(table: &Table) -> LuaResult<PartialWindowConfig> {
         shadow,
         corner_radius,
         resize_modifier,
+        floating,
+        shader,
     })
 }
 
@@ -1560,12 +2232,25 @@ fn parse_shadow_config(table: &Table) -> LuaResult<ShadowConfig> {
     } else {
         [0.0, 0.0, 0.0, 0.47]
     };
-    let mut sc = ShadowConfig { color, ..ShadowConfig::default() };
-    if let Some(on) = on { sc.enable = on; }
-    if let Some(offset_x) = offset_x { sc.offset_x = offset_x; }
-    if let Some(offset_y) = offset_y { sc.offset_y = offset_y; }
-    if let Some(softness) = softness { sc.softness = softness; }
-    if let Some(spread) = spread { sc.spread = spread; }
+    let mut sc = ShadowConfig {
+        color,
+        ..ShadowConfig::default()
+    };
+    if let Some(on) = on {
+        sc.enable = on;
+    }
+    if let Some(offset_x) = offset_x {
+        sc.offset_x = offset_x;
+    }
+    if let Some(offset_y) = offset_y {
+        sc.offset_y = offset_y;
+    }
+    if let Some(softness) = softness {
+        sc.softness = softness;
+    }
+    if let Some(spread) = spread {
+        sc.spread = spread;
+    }
     Ok(sc)
 }
 
@@ -1586,9 +2271,24 @@ mod tests {
 
         assert!(config.outputs.is_empty());
         assert!(!config.binds.is_empty());
-        assert!(config.binds.iter().any(|b| matches!(b.action, BindAction::Quit)));
-        assert!(config.binds.iter().any(|b| matches!(b.action, BindAction::Run(_))));
-        assert!(config.binds.iter().any(|b| matches!(b.action, BindAction::Screenshot)));
+        assert!(
+            config
+                .binds
+                .iter()
+                .any(|b| matches!(b.action, BindAction::Quit))
+        );
+        assert!(
+            config
+                .binds
+                .iter()
+                .any(|b| matches!(b.action, BindAction::Run(_)))
+        );
+        assert!(
+            config
+                .binds
+                .iter()
+                .any(|b| matches!(b.action, BindAction::Screenshot))
+        );
         assert!(config.cursor.theme.is_none());
         assert!(config.cursor.size.is_none());
     }
@@ -1681,7 +2381,10 @@ return {
         let config = parse_lua_config(&config_path).unwrap();
 
         assert_eq!(config.init_commands, vec!["weston-terminal", "waybar"]);
-        assert_eq!(config.init_shell_commands, vec!["echo hello", "sleep 1 && echo world"]);
+        assert_eq!(
+            config.init_shell_commands,
+            vec!["echo hello", "sleep 1 && echo world"]
+        );
     }
 
     #[test]
@@ -1766,7 +2469,10 @@ return {
 
         let config = parse_lua_config(&config_path).unwrap();
 
-        assert_eq!(config.animations.window_open.curve, AnimCurve::CubicBezier(0.25, 0.1, 0.25, 1.0));
+        assert_eq!(
+            config.animations.window_open.curve,
+            AnimCurve::CubicBezier(0.25, 0.1, 0.25, 1.0)
+        );
     }
 
     #[test]
@@ -1961,7 +2667,10 @@ bk.bind({ "Super" }, "q", bk.quit())
 
         assert_eq!(config.window_rules.len(), 2);
         assert_eq!(config.window_rules[0].app_id, Some("kitty".to_string()));
-        assert_eq!(config.window_rules[1].title, Some("Visual Studio Code".to_string()));
+        assert_eq!(
+            config.window_rules[1].title,
+            Some("Visual Studio Code".to_string())
+        );
 
         assert_eq!(config.layer_rules.len(), 1);
         assert_eq!(config.layer_rules[0].namespace, Some("waybar".to_string()));
@@ -2034,7 +2743,59 @@ bk.bind({ "Super" }, "q", bk.exec("kitty"))
         let config = parse_lua_config(&config_path).unwrap();
 
         assert_eq!(config.binds.len(), 2);
-        assert!(matches!(&config.binds[0].action, BindAction::Run(cmd) if cmd == "alacritty -e bash"));
+        assert!(
+            matches!(&config.binds[0].action, BindAction::Run(cmd) if cmd == "alacritty -e bash")
+        );
         assert!(matches!(&config.binds[1].action, BindAction::Run(cmd) if cmd == "kitty"));
+    }
+
+    #[test]
+    fn parse_anim_config_presence() {
+        let lua = Lua::new();
+
+        // A plain easing table with no `off`/`enable` keys must parse as a
+        // curve, not `Off` (regression test: the `off` presence check used to
+        // return `Some(Value::Nil)` for a missing key, forcing every table to
+        // `Off`).
+        let t = lua.create_table().unwrap();
+        t.set("duration_ms", 250).unwrap();
+        t.set("curve", "ease-out-cubic").unwrap();
+        let parsed = parse_anim_config(&t).unwrap();
+        assert_eq!(
+            parsed,
+            AnimConfig::Curve {
+                duration_ms: 250,
+                curve: AnimCurve::EaseOutCubic
+            }
+        );
+
+        // An explicit `off = true` must still disable the animation.
+        let t = lua.create_table().unwrap();
+        t.set("off", true).unwrap();
+        assert_eq!(parse_anim_config(&t).unwrap(), AnimConfig::Off);
+
+        // `enable = false` must disable, `enable = true` must not.
+        let t = lua.create_table().unwrap();
+        t.set("enable", false).unwrap();
+        assert_eq!(parse_anim_config(&t).unwrap(), AnimConfig::Off);
+        let t = lua.create_table().unwrap();
+        t.set("enable", true).unwrap();
+        t.set("duration_ms", 100).unwrap();
+        assert_ne!(parse_anim_config(&t).unwrap(), AnimConfig::Off);
+
+        // Springs must still parse.
+        let t = lua.create_table().unwrap();
+        let spring = lua.create_table().unwrap();
+        spring.set("damping_ratio", 0.8).unwrap();
+        spring.set("stiffness", 300.0).unwrap();
+        t.set("spring", spring).unwrap();
+        assert_eq!(
+            parse_anim_config(&t).unwrap(),
+            AnimConfig::Spring {
+                damping_ratio: 0.8,
+                stiffness: 300.0,
+                epsilon: 0.01
+            }
+        );
     }
 }

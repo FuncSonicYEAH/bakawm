@@ -1,7 +1,6 @@
 use glam::Mat3;
 use smithay::backend::renderer::gles::{
-    GlesFrame, GlesRenderer, GlesTexProgram, Uniform, UniformName, UniformType,
-    UniformValue,
+    GlesFrame, GlesRenderer, GlesTexProgram, Uniform, UniformName, UniformType, UniformValue,
 };
 
 use super::blur::BlurProgram;

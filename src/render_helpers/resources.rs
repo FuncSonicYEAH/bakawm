@@ -1,19 +1,14 @@
 use std::cell::RefCell;
 use std::rc::Rc;
 
-use smithay::backend::renderer::gles::{ffi, Capability, GlesError, GlesFrame, GlesRenderer};
+use smithay::backend::renderer::gles::{Capability, GlesError, GlesFrame, GlesRenderer, ffi};
 
 pub struct Resources {
     pub vertices: Vec<f32>,
     pub vbos: [ffi::types::GLuint; 2],
 }
 
-static INSTANCED_VERTS: [ffi::types::GLfloat; 8] = [
-    1.0, 0.0,
-    0.0, 0.0,
-    1.0, 1.0,
-    0.0, 1.0,
-];
+static INSTANCED_VERTS: [ffi::types::GLfloat; 8] = [1.0, 0.0, 0.0, 0.0, 1.0, 1.0, 0.0, 1.0];
 
 const MAX_RECTS_PER_DRAW: usize = 10;
 const TRIANGLE_VERTS: [ffi::types::GLfloat; 12 * MAX_RECTS_PER_DRAW] = triangle_verts();

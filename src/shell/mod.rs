@@ -25,9 +25,9 @@ use smithay::{
     wayland::{
         buffer::BufferHandler,
         compositor::{
-            BufferAssignment, CompositorClientState, CompositorHandler, CompositorState, SurfaceAttributes,
-            TraversalAction, add_blocker, add_pre_commit_hook, get_parent, is_sync_subsurface, with_states,
-            with_surface_tree_upward,
+            BufferAssignment, CompositorClientState, CompositorHandler, CompositorState,
+            SurfaceAttributes, TraversalAction, add_blocker, add_pre_commit_hook, get_parent,
+            is_sync_subsurface, with_states, with_surface_tree_upward,
         },
         dmabuf::get_dmabuf,
         shell::{
@@ -45,10 +45,10 @@ use crate::{
     state::{AnvilState, Backend},
 };
 
+pub mod closing_window;
 mod element;
 mod grabs;
 pub(crate) mod ssd;
-pub mod closing_window;
 #[cfg(feature = "xwayland")]
 mod x11;
 mod xdg;
@@ -66,9 +66,12 @@ fn fullscreen_output_geometry(
     wl_output
         .and_then(Output::from_resource)
         .or_else(|| {
-            let w = space
-                .elements()
-                .find(|window| window.wl_surface().map(|s| &*s == wl_surface).unwrap_or(false));
+            let w = space.elements().find(|window| {
+                window
+                    .wl_surface()
+                    .map(|s| &*s == wl_surface)
+                    .unwrap_or(false)
+            });
             w.and_then(|w| space.outputs_for_element(w).first().cloned())
         })
         .as_ref()
@@ -193,7 +196,8 @@ impl<BackendData: Backend> CompositorHandler for AnvilState<BackendData> {
                         let client = surface.client().unwrap();
                         let res = state.handle.insert_source(source, move |_, _, data| {
                             let dh = data.display_handle.clone();
-                            data.client_compositor_state(&client).blocker_cleared(data, &dh);
+                            data.client_compositor_state(&client)
+                                .blocker_cleared(data, &dh);
                             Ok(())
                         });
                         if res.is_ok() {
@@ -206,7 +210,8 @@ impl<BackendData: Backend> CompositorHandler for AnvilState<BackendData> {
                     if let Some(client) = surface.client() {
                         let res = state.handle.insert_source(source, move |_, _, data| {
                             let dh = data.display_handle.clone();
-                            data.client_compositor_state(&client).blocker_cleared(data, &dh);
+                            data.client_compositor_state(&client)
+                                .blocker_cleared(data, &dh);
                             Ok(())
                         });
                         if res.is_ok() {
@@ -242,7 +247,8 @@ impl<BackendData: Backend> CompositorHandler for AnvilState<BackendData> {
 
                     if let Some(buffer_offset) = buffer_offset {
                         let current_loc = self.space.element_location(&window).unwrap();
-                        self.space.relocate_element(&window, current_loc + buffer_offset);
+                        self.space
+                            .relocate_element(&window, current_loc + buffer_offset);
                     }
                 }
             }
@@ -306,20 +312,38 @@ impl<BackendData: Backend> WlrLayerShellHandler for AnvilState<BackendData> {
             .as_ref()
             .and_then(Output::from_resource)
             .unwrap_or_else(|| self.space.outputs().next().unwrap().clone());
-        let mut map = layer_map_for_output(&output);
-        map.map_layer(&LayerSurface::new(surface, namespace)).unwrap();
+        {
+            let mut map = layer_map_for_output(&output);
+            map.map_layer(&LayerSurface::new(surface, namespace))
+                .unwrap();
+        }
+
+        // The new layer may reserve an exclusive zone (bars/panels): re-flow the
+        // tiling layout so windows avoid it. Note: the map mutex must be released
+        // before arrange_layout, which itself locks the layer map (work_area).
+        self.arrange_layout();
     }
 
     fn layer_destroyed(&mut self, surface: WlrLayerSurface) {
-        if let Some((mut map, layer)) = self.space.outputs().find_map(|o| {
-            let map = layer_map_for_output(o);
-            let layer = map
-                .layers()
-                .find(|&layer| layer.layer_surface() == &surface)
-                .cloned();
-            layer.map(|layer| (map, layer))
-        }) {
-            map.unmap_layer(&layer);
+        let output_layer: Option<(Output, LayerSurface)> = self
+            .space
+            .outputs()
+            .find_map(|o| {
+                let map = layer_map_for_output(o);
+                let layer = map
+                    .layers()
+                    .find(|&layer| layer.layer_surface() == &surface)
+                    .cloned();
+                layer.map(|layer| (o.clone(), layer))
+            });
+        if let Some((output, layer)) = output_layer {
+            {
+                let mut map = layer_map_for_output(&output);
+                map.unmap_layer(&layer);
+            }
+            // A removed bar/panel frees its exclusive zone: re-flow the layout.
+            // (The map mutex must be released first — arrange_layout re-locks it.)
+            self.arrange_layout();
         }
     }
 }
@@ -340,7 +364,11 @@ pub struct SurfaceData {
     pub needs_center: bool,
 }
 
-fn ensure_initial_configure(surface: &WlSurface, space: &Space<WindowElement>, popups: &mut PopupManager) {
+fn ensure_initial_configure(
+    surface: &WlSurface,
+    space: &Space<WindowElement>,
+    popups: &mut PopupManager,
+) {
     with_surface_tree_upward(
         surface,
         (),
@@ -471,17 +499,22 @@ fn place_new_window(
 
     let needs_center = window_bbox.size.w == 0 || window_bbox.size.h == 0;
 
-    let x = output_geometry.loc.x + (output_geometry.size.w - window_bbox.size.w) / 2 - window_bbox.loc.x;
-    let y = output_geometry.loc.y + (output_geometry.size.h - window_bbox.size.h) / 2 - window_bbox.loc.y;
+    let x = output_geometry.loc.x + (output_geometry.size.w - window_bbox.size.w) / 2
+        - window_bbox.loc.x;
+    let y = output_geometry.loc.y + (output_geometry.size.h - window_bbox.size.h) / 2
+        - window_bbox.loc.y;
 
     space.map_element(window.clone(), (x, y), activate);
 
     if needs_center {
         if let Some(surface) = window.wl_surface().as_deref() {
             with_states(surface, |states| {
-                states
-                    .data_map
-                    .insert_if_missing(|| RefCell::new(SurfaceData { needs_center: true, ..Default::default() }));
+                states.data_map.insert_if_missing(|| {
+                    RefCell::new(SurfaceData {
+                        needs_center: true,
+                        ..Default::default()
+                    })
+                });
                 if let Some(data) = states.data_map.get::<RefCell<SurfaceData>>() {
                     data.borrow_mut().needs_center = true;
                 }

@@ -1,6 +1,6 @@
 use std::collections::{HashMap, HashSet};
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 
 use smithay::backend::allocator::dmabuf::Dmabuf;
@@ -488,10 +488,7 @@ impl Screencopy {
         self.with_damage
     }
 
-    pub fn damage(
-        &self,
-        damages: impl Iterator<Item = Rectangle<i32, smithay::utils::Buffer>>,
-    ) {
+    pub fn damage(&self, damages: impl Iterator<Item = Rectangle<i32, smithay::utils::Buffer>>) {
         for Rectangle { loc, size } in damages {
             self.frame
                 .damage(loc.x as u32, loc.y as u32, size.w as u32, size.h as u32);
