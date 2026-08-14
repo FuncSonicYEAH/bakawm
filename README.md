@@ -49,7 +49,7 @@ sudo dnf install gcc pkg-config clang systemd-devel libdrm-devel mesa-libgbm-dev
 On Arch Linux:
 
 ```bash
-sudo pacman -S base-devel pkg-config clang systemd-libs libdrm libinput \
+sudo pacman -S base-devel clang systemd-libs libdrm libinput \
     libxkbcommon seatd libdisplay-info mesa pixman wayland \
     pipewire dbus
 ```
