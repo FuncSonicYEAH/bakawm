@@ -49,7 +49,7 @@ sudo dnf install gcc pkg-config clang systemd-devel libdrm-devel mesa-libgbm-dev
 On Arch Linux:
 
 ```bash
-sudo pacman -S base-devel pkg-config clang systemd-libs libdrm gbm libinput \
+sudo pacman -S base-devel pkg-config clang systemd-libs libdrm libinput \
     libxkbcommon seatd libdisplay-info mesa pixman wayland \
     pipewire dbus
 ```
@@ -57,17 +57,17 @@ sudo pacman -S base-devel pkg-config clang systemd-libs libdrm gbm libinput \
 On Void Linux:
 
 ```bash
-sudo xbps-install base-devel clang pkg-config libudev-devel libdrm-devel \
-    gbm-devel libinput-devel libxkbcommon-devel seatd-devel \
-    libdisplay-info-devel wayland-devel mesa-devel pixman-devel \
+sudo xbps-install base-devel clang pkg-config eudev-libudev-devel libdrm-devel \
+    libgbm-devel libinput-devel libxkbcommon-devel libseat-devel \
+    libdisplay-info-devel wayland-devel MesaLib-devel pixman-devel \
     pipewire-devel dbus-devel
 ```
 
 On Alpine Linux:
 
 ```bash
-sudo apk add build-base pkgconf clang eudev-dev libdrm-dev mesa-gbm-dev \
-    libinput-dev libxkbcommon-dev seatd-dev libdisplay-info-dev \
+sudo apk add build-base pkgconf clang eudev-dev libdrm-dev mesa-gbm \
+    libinput-dev libxkbcommon-dev libseat-dev libdisplay-info-dev \
     wayland-dev mesa-dev pixman-dev \
     pipewire-dev dbus-dev
 ```
