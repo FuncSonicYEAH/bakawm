@@ -13,32 +13,32 @@ impl Curve {
     /// Compute the y value for a given x in [0, 1].
     pub fn y(self, x: f64) -> f64 {
         match self {
-            Curve::Linear => x,
-            Curve::EaseOutQuad => ease_out_quad(x),
-            Curve::EaseOutCubic => ease_out_cubic(x),
-            Curve::EaseOutExpo => ease_out_expo(x),
-            Curve::CubicBezier { x1, y1, x2, y2 } => CubicBezier::new(x1, y1, x2, y2).y(x),
+            Curve::Linear => return x,
+            Curve::EaseOutQuad => return ease_out_quad(x),
+            Curve::EaseOutCubic => return ease_out_cubic(x),
+            Curve::EaseOutExpo => return ease_out_expo(x),
+            Curve::CubicBezier { x1, y1, x2, y2 } => return CubicBezier::new(x1, y1, x2, y2).y(x),
         }
     }
 }
 
 #[inline]
 fn ease_out_quad(x: f64) -> f64 {
-    1. - (1. - x) * (1. - x)
+    return 1. - (1. - x) * (1. - x)
 }
 
 #[inline]
 fn ease_out_cubic(x: f64) -> f64 {
     let t = 1. - x;
-    1. - t * t * t
+    return 1. - t * t * t
 }
 
 #[inline]
 fn ease_out_expo(x: f64) -> f64 {
     if x <= 0. {
-        0.
+        return 0.
     } else {
-        1. - 2f64.powf(-10. * x)
+        return 1. - 2f64.powf(-10. * x)
     }
 }
 
@@ -56,17 +56,17 @@ pub struct CubicBezier {
 
 impl CubicBezier {
     pub fn new(x1: f64, y1: f64, x2: f64, y2: f64) -> Self {
-        Self { x1, y1, x2, y2 }
+        return Self { x1, y1, x2, y2 }
     }
 
     fn x_for_t(&self, t: f64) -> f64 {
         let omt = 1. - t;
-        3. * omt * omt * t * self.x1 + 3. * omt * t * t * self.x2 + t * t * t
+        return 3. * omt * omt * t * self.x1 + 3. * omt * t * t * self.x2 + t * t * t
     }
 
     fn y_for_t(&self, t: f64) -> f64 {
         let omt = 1. - t;
-        3. * omt * omt * t * self.y1 + 3. * omt * t * t * self.y2 + t * t * t
+        return 3. * omt * omt * t * self.y1 + 3. * omt * t * t * self.y2 + t * t * t
     }
 
     fn t_for_x(&self, x: f64) -> f64 {
@@ -84,7 +84,7 @@ impl CubicBezier {
             }
         }
 
-        (min_t + max_t) / 2.
+        return (min_t + max_t) / 2.
     }
 
     /// Compute the y value for a given x in [0, 1].
@@ -97,6 +97,6 @@ impl CubicBezier {
             return 1.;
         }
 
-        self.y_for_t(self.t_for_x(x))
+        return self.y_for_t(self.t_for_x(x))
     }
 }

@@ -31,7 +31,7 @@ impl SpringParams {
         let critical_damping = 2. * (mass * stiffness).sqrt();
         let damping = damping_ratio * critical_damping;
 
-        Self {
+        return Self {
             damping,
             mass,
             stiffness,
@@ -42,7 +42,7 @@ impl SpringParams {
 
 impl Spring {
     pub fn value_at(&self, t: Duration) -> f64 {
-        self.oscillate(t.as_secs_f64())
+        return self.oscillate(t.as_secs_f64())
     }
 
     /// Computes and returns the duration until the spring is at rest.
@@ -103,7 +103,7 @@ impl Spring {
             i += 1;
         }
 
-        Duration::from_secs_f64(x1)
+        return Duration::from_secs_f64(x1)
     }
 
     /// Computes and returns the duration until the spring reaches its target position.
@@ -133,7 +133,7 @@ impl Spring {
             y = self.oscillate(f64::from(i) / 1000.);
         }
 
-        Some(Duration::from_millis(u64::from(i)))
+        return Some(Duration::from_millis(u64::from(i)))
     }
 
     /// Returns the spring position at a given time in seconds.
@@ -157,19 +157,19 @@ impl Spring {
         // f32::EPSILON even though it's doubles.
         if (beta - omega0).abs() <= f64::from(f32::EPSILON) {
             // Critically damped.
-            self.to + envelope * (x0 + (beta * x0 + v0) * t)
+            return self.to + envelope * (x0 + (beta * x0 + v0) * t)
         } else if beta < omega0 {
             // Underdamped.
             let omega1 = ((omega0 * omega0) - (beta * beta)).sqrt();
 
-            self.to
+            return self.to
                 + envelope
                     * (x0 * (omega1 * t).cos() + ((beta * x0 + v0) / omega1) * (omega1 * t).sin())
         } else {
             // Overdamped.
             let omega2 = ((beta * beta) - (omega0 * omega0)).sqrt();
 
-            self.to
+            return self.to
                 + envelope
                     * (x0 * (omega2 * t).cosh() + ((beta * x0 + v0) / omega2) * (omega2 * t).sinh())
         }

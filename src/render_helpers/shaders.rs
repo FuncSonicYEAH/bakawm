@@ -90,7 +90,7 @@ impl Shaders {
             })
             .ok();
 
-        Self {
+        return Self {
             border,
             shadow,
             clipped_surface,
@@ -100,20 +100,20 @@ impl Shaders {
 
     pub fn get_from_frame<'a>(frame: &'a mut GlesFrame<'_, '_>) -> &'a Self {
         let data = frame.egl_context().user_data();
-        data.get()
+        return data.get()
             .expect("shaders::init() must be called when creating the renderer")
     }
 
     pub fn get(renderer: &mut GlesRenderer) -> &Self {
         let data = renderer.egl_context().user_data();
-        data.get()
+        return data.get()
             .expect("shaders::init() must be called when creating the renderer")
     }
 
     pub fn program(&self, program: ProgramType) -> Option<ShaderProgram> {
         match program {
-            ProgramType::Border => self.border.clone(),
-            ProgramType::Shadow => self.shadow.clone(),
+            ProgramType::Border => return self.border.clone(),
+            ProgramType::Shadow => return self.shadow.clone(),
         }
     }
 }
@@ -121,13 +121,13 @@ impl Shaders {
 pub fn init(renderer: &mut GlesRenderer) {
     let shaders = Shaders::compile(renderer);
     let data = renderer.egl_context().user_data();
-    if !data.insert_if_missing(|| shaders) {
+    if !data.insert_if_missing(|| return shaders) {
         tracing::error!("shaders were already compiled");
     }
 }
 
 pub fn mat3_uniform(name: &'static str, mat: Mat3) -> Uniform<'static> {
-    Uniform::new(
+    return Uniform::new(
         name,
         UniformValue::Matrix3x3 {
             matrices: vec![mat.to_cols_array()],

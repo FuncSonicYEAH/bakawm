@@ -23,7 +23,7 @@ pub struct RenderCtx<'a, R> {
 impl<'a, R> RenderCtx<'a, R> {
     #[inline]
     pub fn r<'b>(&'b mut self) -> RenderCtx<'b, R> {
-        RenderCtx {
+        return RenderCtx {
             renderer: self.renderer,
             target: self.target,
         }
@@ -43,15 +43,15 @@ pub fn encompassing_geo(
     scale: smithay::utils::Scale<f64>,
     elements: impl Iterator<Item = impl smithay::backend::renderer::element::Element>,
 ) -> smithay::utils::Rectangle<i32, smithay::utils::Physical> {
-    elements
-        .map(|ele| ele.geometry(scale))
-        .reduce(|a, b| a.merge(b))
+    return elements
+        .map(|ele| return ele.geometry(scale))
+        .reduce(|a, b| return a.merge(b))
         .unwrap_or_default()
 }
 
 #[cfg(feature = "xdp-gnome-screencast")]
 pub fn render_and_download(
-    mut renderer: &mut smithay::backend::renderer::gles::GlesRenderer,
+    renderer: &mut smithay::backend::renderer::gles::GlesRenderer,
     size: smithay::utils::Size<i32, smithay::utils::Physical>,
     scale: smithay::utils::Scale<f64>,
     transform: smithay::utils::Transform,
@@ -68,9 +68,9 @@ pub fn render_and_download(
 
     let buffer_size = size.to_logical(1).to_buffer(1, transform);
     let mut texture: GlesTexture =
-        <GlesRenderer as Offscreen<GlesTexture>>::create_buffer(&mut renderer, fourcc, buffer_size)
+        <GlesRenderer as Offscreen<GlesTexture>>::create_buffer(renderer, fourcc, buffer_size)
             .context("error creating texture")?;
-    let mut target = <GlesRenderer as Bind<GlesTexture>>::bind(&mut renderer, &mut texture)
+    let mut target = <GlesRenderer as Bind<GlesTexture>>::bind(renderer, &mut texture)
         .context("error binding texture")?;
 
     let output_transform = transform.invert();
@@ -97,7 +97,7 @@ pub fn render_and_download(
     let _sync_point = frame.finish().context("error finishing frame")?;
 
     let target_size = target.size();
-    renderer
+    return renderer
         .copy_framebuffer(&target, Rectangle::from_size(target_size), fourcc)
         .context("error copying framebuffer")
 }
@@ -125,7 +125,7 @@ pub fn clear_dmabuf(
             &[Rectangle::from_size(size)],
         )
         .context("error clearing")?;
-    frame.finish().context("error finishing frame")
+    return frame.finish().context("error finishing frame")
 }
 
 #[cfg(feature = "xdp-gnome-screencast")]
@@ -166,5 +166,5 @@ pub fn render_to_dmabuf(
 
     tracing::trace!("render_to_dmabuf: completed, damage={:?}", res.damage);
 
-    Ok(res.sync)
+    return Ok(res.sync)
 }

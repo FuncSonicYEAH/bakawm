@@ -45,14 +45,14 @@ pub struct Config {
 
 impl Clone for Config {
     fn clone(&self) -> Self {
-        Config {
+        return Config {
             outputs: self.outputs.clone(),
             binds: self.binds.clone(),
             env: self.env.clone(),
             cursor: self.cursor.clone(),
             window: self.window.clone(),
-            blur: self.blur.clone(),
-            animations: self.animations.clone(),
+            blur: self.blur,
+            animations: self.animations,
             layout: self.layout,
             custom_shaders: self.custom_shaders.clone(),
             window_rules: self.window_rules.clone(),
@@ -137,7 +137,7 @@ pub struct LuaConfig {
 
 impl std::fmt::Debug for LuaConfig {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("LuaConfig")
+        return f.debug_struct("LuaConfig")
             .field("callbacks_count", &self.callbacks.len())
             .finish()
     }
@@ -148,8 +148,8 @@ impl LuaConfig {
     /// or the Lua call fails.
     pub fn invoke_callback(&self, idx: usize) -> LuaResult<()> {
         match self.callbacks.get(idx) {
-            Some(func) => func.call::<()>(()),
-            None => Err(mlua::Error::external(format!(
+            Some(func) => return func.call::<()>(()),
+            None => return Err(mlua::Error::external(format!(
                 "Callback index {} out of bounds (max {})",
                 idx,
                 self.callbacks.len()
@@ -172,7 +172,7 @@ impl LuaConfig {
         gap: f64,
     ) -> LuaResult<Vec<Option<(f64, f64, f64, f64)>>> {
         let func = self.callbacks.get(idx).ok_or_else(|| {
-            mlua::Error::external(format!(
+            return mlua::Error::external(format!(
                 "Layout function index {} out of bounds (max {})",
                 idx,
                 self.callbacks.len()
@@ -212,7 +212,7 @@ impl LuaConfig {
                 None => out.push(None),
             }
         }
-        Ok(out)
+        return Ok(out)
     }
 }
 
@@ -232,7 +232,7 @@ pub struct CornerRadius {
 
 impl From<CornerRadius> for [f32; 4] {
     fn from(value: CornerRadius) -> Self {
-        [
+        return [
             value.top_left,
             value.top_right,
             value.bottom_right,
@@ -243,7 +243,7 @@ impl From<CornerRadius> for [f32; 4] {
 
 impl From<f32> for CornerRadius {
     fn from(value: f32) -> Self {
-        Self {
+        return Self {
             top_left: value,
             top_right: value,
             bottom_right: value,
@@ -266,7 +266,7 @@ impl CornerRadius {
         );
         let reduction = f32::min(1., reduction);
 
-        Self {
+        return Self {
             top_left: self.top_left * reduction,
             top_right: self.top_right * reduction,
             bottom_right: self.bottom_right * reduction,
@@ -295,11 +295,11 @@ impl CornerRadius {
             self.bottom_right = self.bottom_right.max(0.);
         }
 
-        self
+        return self
     }
 
     pub fn scaled_by(self, scale: f32) -> Self {
-        Self {
+        return Self {
             top_left: self.top_left * scale,
             top_right: self.top_right * scale,
             bottom_right: self.bottom_right * scale,
@@ -348,7 +348,7 @@ pub struct BlurConfig {
 
 impl Default for BorderConfig {
     fn default() -> Self {
-        BorderConfig {
+        return BorderConfig {
             width: 0.0,
             color: [0.0, 0.0, 0.0, 1.0],
             inactive_color: [0.3, 0.3, 0.3, 1.0],
@@ -358,7 +358,7 @@ impl Default for BorderConfig {
 
 impl Default for ShadowConfig {
     fn default() -> Self {
-        ShadowConfig {
+        return ShadowConfig {
             enable: false,
             offset_x: 0.0,
             offset_y: 5.0,
@@ -371,7 +371,7 @@ impl Default for ShadowConfig {
 
 impl Default for BlurConfig {
     fn default() -> Self {
-        BlurConfig {
+        return BlurConfig {
             enable: true,
             passes: 2,
             offset: 1.0,
@@ -409,7 +409,7 @@ pub struct PartialWindowConfig {
 impl PartialWindowConfig {
     /// Apply this partial config on top of a base WindowConfig, returning the merged result.
     pub fn merge_over(&self, base: &WindowConfig) -> WindowConfig {
-        WindowConfig {
+        return WindowConfig {
             prefer_no_csd: self.prefer_no_csd.unwrap_or(base.prefer_no_csd),
             border: self.border.as_ref().unwrap_or(&base.border).clone(),
             shadow: self.shadow.unwrap_or(base.shadow),
@@ -420,7 +420,7 @@ impl PartialWindowConfig {
                 .unwrap_or(&base.resize_modifier)
                 .clone(),
             floating: self.floating.unwrap_or(base.floating),
-            shader: self.shader.clone().or_else(|| base.shader.clone()),
+            shader: self.shader.clone().or_else(|| return base.shader.clone()),
         }
     }
 }
@@ -483,7 +483,7 @@ pub enum AnimCurve {
 
 impl Default for AnimationsConfig {
     fn default() -> Self {
-        AnimationsConfig {
+        return AnimationsConfig {
             enable: true,
             window_open: WindowAnimConfig {
                 enable: true,
@@ -511,12 +511,12 @@ impl AnimCurve {
     /// Convert to the animation module's Curve type.
     pub fn to_curve(self) -> crate::animation::Curve {
         match self {
-            AnimCurve::Linear => crate::animation::Curve::Linear,
-            AnimCurve::EaseOutQuad => crate::animation::Curve::EaseOutQuad,
-            AnimCurve::EaseOutCubic => crate::animation::Curve::EaseOutCubic,
-            AnimCurve::EaseOutExpo => crate::animation::Curve::EaseOutExpo,
+            AnimCurve::Linear => return crate::animation::Curve::Linear,
+            AnimCurve::EaseOutQuad => return crate::animation::Curve::EaseOutQuad,
+            AnimCurve::EaseOutCubic => return crate::animation::Curve::EaseOutCubic,
+            AnimCurve::EaseOutExpo => return crate::animation::Curve::EaseOutExpo,
             AnimCurve::CubicBezier(x1, y1, x2, y2) => {
-                crate::animation::Curve::CubicBezier { x1, y1, x2, y2 }
+                return crate::animation::Curve::CubicBezier { x1, y1, x2, y2 }
             }
         }
     }
@@ -543,9 +543,9 @@ impl AnimConfig {
     /// Convert to a runtime [`crate::animation::Animation`] between `from` and `to`.
     pub fn to_animation(&self, from: f64, to: f64) -> crate::animation::Animation {
         match self {
-            AnimConfig::Off => crate::animation::Animation::new_off(),
+            AnimConfig::Off => return crate::animation::Animation::new_off(),
             AnimConfig::Curve { duration_ms, curve } => {
-                crate::animation::Animation::ease(from, to, *duration_ms, curve.to_curve())
+                return crate::animation::Animation::ease(from, to, *duration_ms, curve.to_curve())
             }
             AnimConfig::Spring {
                 damping_ratio,
@@ -560,7 +560,7 @@ impl AnimConfig {
                     initial_velocity: 0.,
                     params,
                 };
-                crate::animation::Animation::spring(from, to, spring)
+                return crate::animation::Animation::spring(from, to, spring)
             }
         }
     }
@@ -594,7 +594,7 @@ pub struct Margins {
 
 impl Default for Margins {
     fn default() -> Self {
-        Self {
+        return Self {
             top: 0.,
             bottom: 0.,
             left: 0.,
@@ -614,7 +614,7 @@ pub struct LayoutAnimConfig {
 
 impl Default for LayoutAnimConfig {
     fn default() -> Self {
-        Self {
+        return Self {
             move_anim: AnimConfig::Curve {
                 duration_ms: 250,
                 curve: AnimCurve::EaseOutCubic,
@@ -646,7 +646,7 @@ pub struct LayoutConfig {
 
 impl Default for LayoutConfig {
     fn default() -> Self {
-        Self {
+        return Self {
             layout: LayoutType::Floating,
             gap: 8.,
             margins: Margins::default(),
@@ -678,12 +678,12 @@ pub struct ShaderUniform {
 impl ShaderUniform {
     /// Build a `UniformName` for this parameter.
     pub fn name(&self) -> UniformName<'static> {
-        UniformName::new(self.name.clone(), self.value.type_())
+        return UniformName::new(self.name.clone(), self.value.type_())
     }
 
     /// Build a `Uniform` for this parameter.
     pub fn uniform(&self) -> Uniform<'static> {
-        Uniform::new(self.name.clone(), self.value.clone())
+        return Uniform::new(self.name.clone(), self.value.clone())
     }
 }
 
@@ -700,7 +700,7 @@ pub struct CustomShaderConfig {
 
 impl Default for WindowConfig {
     fn default() -> Self {
-        WindowConfig {
+        return WindowConfig {
             prefer_no_csd: true,
             border: BorderConfig {
                 width: 0.0,
@@ -718,7 +718,7 @@ impl Default for WindowConfig {
 
 impl Default for Config {
     fn default() -> Self {
-        Config {
+        return Config {
             outputs: Vec::new(),
             binds: vec![
                 BindConfig {
@@ -819,29 +819,29 @@ impl Config {
         app_id: Option<&str>,
         title: Option<&str>,
     ) -> Option<&WindowRule> {
-        self.window_rules.iter().find(|rule| {
+        return self.window_rules.iter().find(|rule| {
             let matches = match (&rule.app_id, &rule.title) {
                 (Some(rule_id), Some(rule_title)) => {
-                    app_id.map_or(false, |id| id.contains(rule_id))
-                        && title.map_or(false, |t| t.contains(rule_title))
+                    app_id.is_some_and(|id| return id.contains(rule_id))
+                        && title.is_some_and(|t| return t.contains(rule_title))
                 }
-                (Some(rule_id), None) => app_id.map_or(false, |id| id.contains(rule_id)),
-                (None, Some(rule_title)) => title.map_or(false, |t| t.contains(rule_title)),
+                (Some(rule_id), None) => app_id.is_some_and(|id| return id.contains(rule_id)),
+                (None, Some(rule_title)) => title.is_some_and(|t| return t.contains(rule_title)),
                 (None, None) => true,
             };
-            matches
+            return matches
         })
     }
 }
 
 fn config_dir() -> PathBuf {
-    dirs::config_dir()
-        .unwrap_or_else(|| PathBuf::from("."))
+    return dirs::config_dir()
+        .unwrap_or_else(|| return PathBuf::from("."))
         .join(CONFIG_DIR_NAME)
 }
 
 pub fn config_path() -> PathBuf {
-    config_dir().join(CONFIG_FILE_NAME)
+    return config_dir().join(CONFIG_FILE_NAME)
 }
 
 pub fn load_config() -> Config {
@@ -883,14 +883,14 @@ pub fn load_config() -> Config {
                 config.animations.window_close.duration_ms,
                 config.animations.window_close.curve,
             );
-            finalize_config(config)
+            return finalize_config(config)
         }
         Err(e) => {
             warn!(
                 "Failed to parse config file {:?}: {}, using defaults",
                 path, e
             );
-            finalize_config(Config::default())
+            return finalize_config(Config::default())
         }
     }
 }
@@ -914,14 +914,14 @@ pub fn reload_config(current: &Config) -> Config {
                 new_config.animations.window_close.duration_ms,
                 new_config.animations.window_close.curve,
             );
-            finalize_config(new_config)
+            return finalize_config(new_config)
         }
         Err(e) => {
             warn!(
                 "Failed to reload config file {:?}: {}, keeping current config",
                 path, e
             );
-            current.clone()
+            return current.clone()
         }
     }
 }
@@ -930,7 +930,7 @@ pub fn reload_config(current: &Config) -> Config {
 /// custom shaders get invalidated on reload.
 fn finalize_config(mut config: Config) -> Config {
     config.shader_gen = SHADER_GEN.fetch_add(1, Ordering::Relaxed) + 1;
-    config
+    return config
 }
 
 pub fn spawn_config_watcher<B: crate::state::Backend + 'static>(
@@ -961,20 +961,18 @@ pub fn spawn_config_watcher<B: crate::state::Backend + 'static>(
     };
 
     let config_dir = config_dir();
-    if config_dir.exists() {
-        if let Err(e) = watcher.watch(&config_dir, RecursiveMode::NonRecursive) {
+    if config_dir.exists()
+        && let Err(e) = watcher.watch(&config_dir, RecursiveMode::NonRecursive) {
             warn!("Failed to watch config directory {:?}: {}", config_dir, e);
             return None;
         }
-    }
 
     let config_file = config_path();
-    if config_file.exists() {
-        if let Err(e) = watcher.watch(&config_file, RecursiveMode::NonRecursive) {
+    if config_file.exists()
+        && let Err(e) = watcher.watch(&config_file, RecursiveMode::NonRecursive) {
             warn!("Failed to watch config file {:?}: {}", config_file, e);
             return None;
         }
-    }
 
     let handle_clone = handle.clone();
     if let Err(e) = handle.insert_source(source, move |_event, _, data| {
@@ -987,7 +985,7 @@ pub fn spawn_config_watcher<B: crate::state::Backend + 'static>(
                         info!("Config file changed, reloading...");
                         data.reload_config();
                     }
-                    TimeoutAction::Drop
+                    return TimeoutAction::Drop
                 },
             );
         }
@@ -997,7 +995,7 @@ pub fn spawn_config_watcher<B: crate::state::Backend + 'static>(
     }
 
     info!("Watching config file for changes at {:?}", config_file);
-    Some(watcher)
+    return Some(watcher)
 }
 
 fn create_default_config() -> Result<(), Box<dyn std::error::Error>> {
@@ -1006,7 +1004,7 @@ fn create_default_config() -> Result<(), Box<dyn std::error::Error>> {
 
     let default_lua = include_str!("../resources/default-config.lua");
     fs::write(config_path(), default_lua)?;
-    Ok(())
+    return Ok(())
 }
 
 fn parse_lua_config(path: &PathBuf) -> LuaResult<Config> {
@@ -1044,7 +1042,7 @@ fn parse_lua_config(path: &PathBuf) -> LuaResult<Config> {
                     key,
                     action: bind_action,
                 });
-                Ok(())
+                return Ok(())
             },
         )?
     };
@@ -1057,7 +1055,7 @@ fn parse_lua_config(path: &PathBuf) -> LuaResult<Config> {
                 .lock()
                 .unwrap()
                 .push(parse_single_output(&t)?);
-            Ok(())
+            return Ok(())
         })?
     };
 
@@ -1066,7 +1064,7 @@ fn parse_lua_config(path: &PathBuf) -> LuaResult<Config> {
         let collected_env = collected_env.clone();
         lua.create_function(move |_, (k, v): (String, String)| {
             collected_env.lock().unwrap().insert(k, v);
-            Ok(())
+            return Ok(())
         })?
     };
 
@@ -1076,7 +1074,7 @@ fn parse_lua_config(path: &PathBuf) -> LuaResult<Config> {
         lua.create_function(move |_, t: Table| {
             let w = parse_window(&t)?;
             *collected_window.lock().unwrap() = Some(w);
-            Ok(())
+            return Ok(())
         })?
     };
 
@@ -1086,7 +1084,7 @@ fn parse_lua_config(path: &PathBuf) -> LuaResult<Config> {
         lua.create_function(move |_, t: Table| {
             let a = parse_animations(&t)?;
             *collected_animations.lock().unwrap() = Some(a);
-            Ok(())
+            return Ok(())
         })?
     };
 
@@ -1096,7 +1094,7 @@ fn parse_lua_config(path: &PathBuf) -> LuaResult<Config> {
         lua.create_function(move |_, t: Table| {
             let b = parse_blur(&t)?;
             *collected_blur.lock().unwrap() = Some(b);
-            Ok(())
+            return Ok(())
         })?
     };
 
@@ -1107,7 +1105,7 @@ fn parse_lua_config(path: &PathBuf) -> LuaResult<Config> {
         lua.create_function(move |_, t: Table| {
             let l = parse_layout(&t, &callbacks)?;
             *collected_layout.lock().unwrap() = Some(l);
-            Ok(())
+            return Ok(())
         })?
     };
 
@@ -1117,7 +1115,7 @@ fn parse_lua_config(path: &PathBuf) -> LuaResult<Config> {
         lua.create_function(move |_, t: Table| {
             let s = parse_custom_shader(&t)?;
             collected_custom_shaders.lock().unwrap().push(s);
-            Ok(())
+            return Ok(())
         })?
     };
 
@@ -1127,7 +1125,7 @@ fn parse_lua_config(path: &PathBuf) -> LuaResult<Config> {
         lua.create_function(move |_, t: Table| {
             let c = parse_cursor(&t)?;
             *collected_cursor.lock().unwrap() = Some(c);
-            Ok(())
+            return Ok(())
         })?
     };
 
@@ -1139,7 +1137,7 @@ fn parse_lua_config(path: &PathBuf) -> LuaResult<Config> {
                 .lock()
                 .unwrap()
                 .push(parse_single_window_rule(&t)?);
-            Ok(())
+            return Ok(())
         })?
     };
 
@@ -1151,7 +1149,7 @@ fn parse_lua_config(path: &PathBuf) -> LuaResult<Config> {
                 .lock()
                 .unwrap()
                 .push(parse_single_layer_rule(&t)?);
-            Ok(())
+            return Ok(())
         })?
     };
 
@@ -1159,7 +1157,7 @@ fn parse_lua_config(path: &PathBuf) -> LuaResult<Config> {
     let on_start_fn = lua.create_function(move |_, func: Function| {
         // Call the init function immediately; it should use bk.spawn/bk.run_sh
         // which already push to the shared spawn_commands/shell_commands vectors
-        func.call::<()>(())
+        return func.call::<()>(())
     })?;
 
     // bk.spawn(cmd)
@@ -1167,7 +1165,7 @@ fn parse_lua_config(path: &PathBuf) -> LuaResult<Config> {
         let spawn_commands = spawn_commands.clone();
         lua.create_function(move |_, cmd: String| {
             spawn_commands.lock().unwrap().push(cmd);
-            Ok(())
+            return Ok(())
         })?
     };
 
@@ -1176,7 +1174,7 @@ fn parse_lua_config(path: &PathBuf) -> LuaResult<Config> {
         let shell_commands = shell_commands.clone();
         lua.create_function(move |_, code: String| {
             shell_commands.lock().unwrap().push(code);
-            Ok(())
+            return Ok(())
         })?
     };
 
@@ -1185,63 +1183,63 @@ fn parse_lua_config(path: &PathBuf) -> LuaResult<Config> {
     let make_action = |lua: &Lua, t: &str| -> LuaResult<Table> {
         let table = lua.create_table()?;
         table.set("type", t)?;
-        Ok(table)
+        return Ok(table)
     };
 
-    let quit_fn = lua.create_function(move |lua, ()| make_action(&lua, "Quit"))?;
-    let close_window_fn = lua.create_function(move |lua, ()| make_action(&lua, "CloseWindow"))?;
-    let screenshot_fn = lua.create_function(move |lua, ()| make_action(&lua, "Screenshot"))?;
+    let quit_fn = lua.create_function(move |lua, ()| return make_action(lua, "Quit"))?;
+    let close_window_fn = lua.create_function(move |lua, ()| return make_action(lua, "CloseWindow"))?;
+    let screenshot_fn = lua.create_function(move |lua, ()| return make_action(lua, "Screenshot"))?;
     let toggle_decorations_fn =
-        lua.create_function(move |lua, ()| make_action(&lua, "ToggleDecorations"))?;
+        lua.create_function(move |lua, ()| return make_action(lua, "ToggleDecorations"))?;
     let toggle_preview_fn =
-        lua.create_function(move |lua, ()| make_action(&lua, "TogglePreview"))?;
-    let scale_up_fn = lua.create_function(move |lua, ()| make_action(&lua, "ScaleUp"))?;
-    let scale_down_fn = lua.create_function(move |lua, ()| make_action(&lua, "ScaleDown"))?;
-    let rotate_output_fn = lua.create_function(move |lua, ()| make_action(&lua, "RotateOutput"))?;
-    let toggle_tint_fn = lua.create_function(move |lua, ()| make_action(&lua, "ToggleTint"))?;
+        lua.create_function(move |lua, ()| return make_action(lua, "TogglePreview"))?;
+    let scale_up_fn = lua.create_function(move |lua, ()| return make_action(lua, "ScaleUp"))?;
+    let scale_down_fn = lua.create_function(move |lua, ()| return make_action(lua, "ScaleDown"))?;
+    let rotate_output_fn = lua.create_function(move |lua, ()| return make_action(lua, "RotateOutput"))?;
+    let toggle_tint_fn = lua.create_function(move |lua, ()| return make_action(lua, "ToggleTint"))?;
     let toggle_floating_fn =
-        lua.create_function(move |lua, ()| make_action(&lua, "ToggleFloating"))?;
+        lua.create_function(move |lua, ()| return make_action(lua, "ToggleFloating"))?;
 
     let exec_fn = lua.create_function(move |lua, args: mlua::Variadic<String>| {
         let table = lua.create_table()?;
         table.set("type", "Run")?;
         table.set("command", args.join(" "))?;
-        Ok(table)
+        return Ok(table)
     })?;
 
     let vt_switch_fn = lua.create_function(move |lua, n: i32| {
         let table = lua.create_table()?;
         table.set("type", "VtSwitch")?;
         table.set("n", n)?;
-        Ok(table)
+        return Ok(table)
     })?;
 
     let screen_fn = lua.create_function(move |lua, n: usize| {
         let table = lua.create_table()?;
         table.set("type", "Screen")?;
         table.set("n", n)?;
-        Ok(table)
+        return Ok(table)
     })?;
 
-    let focus_next_fn = lua.create_function(move |lua, ()| make_action(&lua, "FocusNext"))?;
-    let focus_prev_fn = lua.create_function(move |lua, ()| make_action(&lua, "FocusPrev"))?;
+    let focus_next_fn = lua.create_function(move |lua, ()| return make_action(lua, "FocusNext"))?;
+    let focus_prev_fn = lua.create_function(move |lua, ()| return make_action(lua, "FocusPrev"))?;
     let workspace_next_fn =
-        lua.create_function(move |lua, ()| make_action(&lua, "WorkspaceNext"))?;
+        lua.create_function(move |lua, ()| return make_action(lua, "WorkspaceNext"))?;
     let workspace_prev_fn =
-        lua.create_function(move |lua, ()| make_action(&lua, "WorkspacePrev"))?;
+        lua.create_function(move |lua, ()| return make_action(lua, "WorkspacePrev"))?;
     let workspace_fn = lua.create_function(move |lua, n: usize| {
         let table = lua.create_table()?;
         table.set("type", "Workspace")?;
         table.set("n", n)?;
-        Ok(table)
+        return Ok(table)
     })?;
-    let resize_width_up_fn = lua.create_function(move |lua, ()| make_action(&lua, "ResizeWidthUp"))?;
+    let resize_width_up_fn = lua.create_function(move |lua, ()| return make_action(lua, "ResizeWidthUp"))?;
     let resize_width_down_fn =
-        lua.create_function(move |lua, ()| make_action(&lua, "ResizeWidthDown"))?;
+        lua.create_function(move |lua, ()| return make_action(lua, "ResizeWidthDown"))?;
     let toggle_fullscreen_fn =
-        lua.create_function(move |lua, ()| make_action(&lua, "ToggleFullscreen"))?;
+        lua.create_function(move |lua, ()| return make_action(lua, "ToggleFullscreen"))?;
     let toggle_maximize_fn =
-        lua.create_function(move |lua, ()| make_action(&lua, "ToggleMaximize"))?;
+        lua.create_function(move |lua, ()| return make_action(lua, "ToggleMaximize"))?;
 
     // ── Assemble bk global table ─────────────────────────────────
     let bk = lua.create_table()?;
@@ -1419,7 +1417,7 @@ fn parse_lua_config(path: &PathBuf) -> LuaResult<Config> {
         callbacks: lua_callbacks,
     }));
 
-    Ok(config)
+    return Ok(config)
 }
 
 /// Parse the `modifiers` parameter of `bk.bind()`.
@@ -1431,10 +1429,10 @@ fn parse_modifiers_value(_lua: &Lua, value: Value) -> LuaResult<Vec<String>> {
             for m in t.sequence_values::<String>() {
                 mods.push(m?);
             }
-            Ok(mods)
+            return Ok(mods)
         }
-        Value::String(s) => Ok(vec![s.to_str()?.to_owned()]),
-        _ => Ok(Vec::new()),
+        Value::String(s) => return Ok(vec![s.to_str()?.to_owned()]),
+        _ => return Ok(Vec::new()),
     }
 }
 
@@ -1450,41 +1448,41 @@ fn parse_action_value(
             // Action descriptor table from bk.quit(), bk.exec(cmd), etc.
             let kind: String = t.get("type")?;
             match kind.as_str() {
-                "Quit" => Ok(BindAction::Quit),
-                "CloseWindow" => Ok(BindAction::CloseWindow),
+                "Quit" => return Ok(BindAction::Quit),
+                "CloseWindow" => return Ok(BindAction::CloseWindow),
                 "Run" => {
                     let command: String = t.get("command")?;
-                    Ok(BindAction::Run(command))
+                    return Ok(BindAction::Run(command))
                 }
-                "Screenshot" => Ok(BindAction::Screenshot),
-                "ToggleDecorations" => Ok(BindAction::ToggleDecorations),
-                "TogglePreview" => Ok(BindAction::TogglePreview),
-                "ScaleUp" => Ok(BindAction::ScaleUp),
-                "ScaleDown" => Ok(BindAction::ScaleDown),
-                "RotateOutput" => Ok(BindAction::RotateOutput),
-                "ToggleTint" => Ok(BindAction::ToggleTint),
-                "ToggleFloating" => Ok(BindAction::ToggleFloating),
+                "Screenshot" => return Ok(BindAction::Screenshot),
+                "ToggleDecorations" => return Ok(BindAction::ToggleDecorations),
+                "TogglePreview" => return Ok(BindAction::TogglePreview),
+                "ScaleUp" => return Ok(BindAction::ScaleUp),
+                "ScaleDown" => return Ok(BindAction::ScaleDown),
+                "RotateOutput" => return Ok(BindAction::RotateOutput),
+                "ToggleTint" => return Ok(BindAction::ToggleTint),
+                "ToggleFloating" => return Ok(BindAction::ToggleFloating),
                 "VtSwitch" => {
                     let n: i32 = t.get("n")?;
-                    Ok(BindAction::VtSwitch(n))
+                    return Ok(BindAction::VtSwitch(n))
                 }
                 "Screen" => {
                     let n: usize = t.get("n")?;
-                    Ok(BindAction::Screen(n))
+                    return Ok(BindAction::Screen(n))
                 }
-                "FocusNext" => Ok(BindAction::FocusNext),
-                "FocusPrev" => Ok(BindAction::FocusPrev),
-                "WorkspaceNext" => Ok(BindAction::WorkspaceNext),
-                "WorkspacePrev" => Ok(BindAction::WorkspacePrev),
+                "FocusNext" => return Ok(BindAction::FocusNext),
+                "FocusPrev" => return Ok(BindAction::FocusPrev),
+                "WorkspaceNext" => return Ok(BindAction::WorkspaceNext),
+                "WorkspacePrev" => return Ok(BindAction::WorkspacePrev),
                 "Workspace" => {
                     let n: usize = t.get("n")?;
-                    Ok(BindAction::Workspace(n))
+                    return Ok(BindAction::Workspace(n))
                 }
-                "ResizeWidthUp" => Ok(BindAction::ResizeWidthUp),
-                "ResizeWidthDown" => Ok(BindAction::ResizeWidthDown),
-                "ToggleFullscreen" => Ok(BindAction::ToggleFullscreen),
-                "ToggleMaximize" => Ok(BindAction::ToggleMaximize),
-                other => Err(mlua::Error::external(format!(
+                "ResizeWidthUp" => return Ok(BindAction::ResizeWidthUp),
+                "ResizeWidthDown" => return Ok(BindAction::ResizeWidthDown),
+                "ToggleFullscreen" => return Ok(BindAction::ToggleFullscreen),
+                "ToggleMaximize" => return Ok(BindAction::ToggleMaximize),
+                other => return Err(mlua::Error::external(format!(
                     "Unknown bind action type: {}",
                     other
                 ))),
@@ -1493,9 +1491,9 @@ fn parse_action_value(
         Value::Function(func) => {
             let idx = callbacks.lock().unwrap().len();
             callbacks.lock().unwrap().push(func);
-            Ok(BindAction::Callback(idx))
+            return Ok(BindAction::Callback(idx))
         }
-        other => Err(mlua::Error::external(format!(
+        other => return Err(mlua::Error::external(format!(
             "bind action must be a table or function, got {:?}",
             other
         ))),
@@ -1525,7 +1523,7 @@ fn parse_single_output(t: &Table) -> LuaResult<OutputConfig> {
     let scale: Option<f64> = t.get("scale").ok();
     let transform: Option<String> = t.get("transform").ok();
 
-    Ok(OutputConfig {
+    return Ok(OutputConfig {
         name,
         mode,
         position,
@@ -1551,7 +1549,7 @@ fn parse_single_window_rule(t: &Table) -> LuaResult<WindowRule> {
         None
     };
 
-    Ok(WindowRule {
+    return Ok(WindowRule {
         app_id,
         title,
         window,
@@ -1569,7 +1567,7 @@ fn parse_single_layer_rule(t: &Table) -> LuaResult<LayerRule> {
         None
     };
 
-    Ok(LayerRule { namespace, blur })
+    return Ok(LayerRule { namespace, blur })
 }
 
 fn parse_outputs(table: &Table) -> LuaResult<Vec<OutputConfig>> {
@@ -1605,7 +1603,7 @@ fn parse_outputs(table: &Table) -> LuaResult<Vec<OutputConfig>> {
             transform,
         });
     }
-    Ok(outputs)
+    return Ok(outputs)
 }
 
 fn parse_binds(table: &Table) -> LuaResult<Vec<BindConfig>> {
@@ -1635,34 +1633,34 @@ fn parse_binds(table: &Table) -> LuaResult<Vec<BindConfig>> {
             action,
         });
     }
-    Ok(binds)
+    return Ok(binds)
 }
 
 fn parse_bind_action(table: &Table) -> LuaResult<BindAction> {
     let kind: String = table.get("kind")?;
     match kind.as_str() {
-        "Quit" => Ok(BindAction::Quit),
-        "CloseWindow" => Ok(BindAction::CloseWindow),
+        "Quit" => return Ok(BindAction::Quit),
+        "CloseWindow" => return Ok(BindAction::CloseWindow),
         "Run" => {
             let command: String = table.get("command")?;
-            Ok(BindAction::Run(command))
+            return Ok(BindAction::Run(command))
         }
-        "Screenshot" => Ok(BindAction::Screenshot),
-        "ToggleDecorations" => Ok(BindAction::ToggleDecorations),
-        "TogglePreview" => Ok(BindAction::TogglePreview),
-        "ScaleUp" => Ok(BindAction::ScaleUp),
-        "ScaleDown" => Ok(BindAction::ScaleDown),
-        "RotateOutput" => Ok(BindAction::RotateOutput),
-        "ToggleTint" => Ok(BindAction::ToggleTint),
+        "Screenshot" => return Ok(BindAction::Screenshot),
+        "ToggleDecorations" => return Ok(BindAction::ToggleDecorations),
+        "TogglePreview" => return Ok(BindAction::TogglePreview),
+        "ScaleUp" => return Ok(BindAction::ScaleUp),
+        "ScaleDown" => return Ok(BindAction::ScaleDown),
+        "RotateOutput" => return Ok(BindAction::RotateOutput),
+        "ToggleTint" => return Ok(BindAction::ToggleTint),
         "VtSwitch" => {
             let n: i32 = table.get("n")?;
-            Ok(BindAction::VtSwitch(n))
+            return Ok(BindAction::VtSwitch(n))
         }
         "Screen" => {
             let n: usize = table.get("n")?;
-            Ok(BindAction::Screen(n))
+            return Ok(BindAction::Screen(n))
         }
-        other => Err(mlua::Error::external(format!(
+        other => return Err(mlua::Error::external(format!(
             "Unknown bind action kind: {}",
             other
         ))),
@@ -1675,13 +1673,13 @@ fn parse_env(table: &Table) -> LuaResult<HashMap<String, String>> {
         let (k, v) = pair?;
         env.insert(k, v);
     }
-    Ok(env)
+    return Ok(env)
 }
 
 fn parse_cursor(table: &Table) -> LuaResult<CursorConfig> {
     let theme: Option<String> = table.get("theme").ok();
     let size: Option<u32> = table.get("size").ok();
-    Ok(CursorConfig { theme, size })
+    return Ok(CursorConfig { theme, size })
 }
 
 fn parse_window(table: &Table) -> LuaResult<WindowConfig> {
@@ -1737,7 +1735,7 @@ fn parse_window(table: &Table) -> LuaResult<WindowConfig> {
         window.shader = Some(shader);
     }
 
-    Ok(window)
+    return Ok(window)
 }
 
 fn parse_blur(table: &Table) -> LuaResult<BlurConfig> {
@@ -1754,7 +1752,7 @@ fn parse_blur(table: &Table) -> LuaResult<BlurConfig> {
     if let Ok(xray) = table.get::<bool>("xray") {
         blur.xray = xray;
     }
-    Ok(blur)
+    return Ok(blur)
 }
 
 fn parse_blur_override(table: &Table) -> LuaResult<BlurOverride> {
@@ -1762,7 +1760,7 @@ fn parse_blur_override(table: &Table) -> LuaResult<BlurOverride> {
     let passes = table.get::<u8>("passes").ok();
     let offset = table.get::<f64>("offset").ok();
     let xray = table.get::<bool>("xray").ok();
-    Ok(BlurOverride {
+    return Ok(BlurOverride {
         enable,
         passes,
         offset,
@@ -1789,7 +1787,7 @@ fn parse_animations(table: &Table) -> LuaResult<AnimationsConfig> {
         animations.workspace_switch = parse_window_anim(&ws_table)?;
     }
 
-    Ok(animations)
+    return Ok(animations)
 }
 
 fn parse_window_anim(table: &Table) -> LuaResult<WindowAnimConfig> {
@@ -1813,7 +1811,7 @@ fn parse_window_anim(table: &Table) -> LuaResult<WindowAnimConfig> {
         anim.scale = scale.clamp(0.0, 1.0);
     }
 
-    Ok(anim)
+    return Ok(anim)
 }
 
 fn parse_anim_curve(table: &Table) -> LuaResult<AnimCurve> {
@@ -1823,11 +1821,11 @@ fn parse_anim_curve(table: &Table) -> LuaResult<AnimCurve> {
         Value::String(s) => {
             let curve_str = s.to_str()?.to_string();
             match curve_str.as_str() {
-                "linear" => Ok(AnimCurve::Linear),
-                "ease-out-quad" => Ok(AnimCurve::EaseOutQuad),
-                "ease-out-cubic" => Ok(AnimCurve::EaseOutCubic),
-                "ease-out-expo" => Ok(AnimCurve::EaseOutExpo),
-                other => Err(mlua::Error::external(format!(
+                "linear" => return Ok(AnimCurve::Linear),
+                "ease-out-quad" => return Ok(AnimCurve::EaseOutQuad),
+                "ease-out-cubic" => return Ok(AnimCurve::EaseOutCubic),
+                "ease-out-expo" => return Ok(AnimCurve::EaseOutExpo),
+                other => return Err(mlua::Error::external(format!(
                     "Unknown animation curve: {}",
                     other
                 ))),
@@ -1841,15 +1839,15 @@ fn parse_anim_curve(table: &Table) -> LuaResult<AnimCurve> {
                     let y1: f64 = t.get(3)?;
                     let x2: f64 = t.get(4)?;
                     let y2: f64 = t.get(5)?;
-                    Ok(AnimCurve::CubicBezier(x1, y1, x2, y2))
+                    return Ok(AnimCurve::CubicBezier(x1, y1, x2, y2))
                 }
-                other => Err(mlua::Error::external(format!(
+                other => return Err(mlua::Error::external(format!(
                     "Unknown parametric curve: {}",
                     other
                 ))),
             }
         }
-        _ => Err(mlua::Error::external("curve must be a string or table")),
+        _ => return Err(mlua::Error::external("curve must be a string or table")),
     }
 }
 
@@ -1887,7 +1885,7 @@ fn parse_anim_config(table: &Table) -> LuaResult<AnimConfig> {
         Ok(c) => c,
         Err(_) => AnimCurve::EaseOutCubic,
     };
-    Ok(AnimConfig::Curve { duration_ms, curve })
+    return Ok(AnimConfig::Curve { duration_ms, curve })
 }
 
 /// Parse a layout animation config: `{ move = {...}, resize = {...} }`.
@@ -1901,19 +1899,19 @@ fn parse_layout_anim(table: &Table) -> LuaResult<LayoutAnimConfig> {
         anim.resize_anim = parse_anim_config(&resize_table)?;
     }
 
-    Ok(anim)
+    return Ok(anim)
 }
 
 fn parse_layout_type(t: &Table) -> LuaResult<LayoutType> {
-    let layout: String = t.get("type").unwrap_or_else(|_| "floating".to_string());
+    let layout: String = t.get("type").unwrap_or_else(|_| return "floating".to_string());
     match layout.as_str() {
-        "floating" => Ok(LayoutType::Floating),
-        "columns" => Ok(LayoutType::Columns),
-        "grid" => Ok(LayoutType::Grid),
-        "master-stack" => Ok(LayoutType::MasterStack),
-        "maximize" => Ok(LayoutType::Maximize),
-        "custom" => Ok(LayoutType::Custom),
-        other => Err(mlua::Error::external(format!(
+        "floating" => return Ok(LayoutType::Floating),
+        "columns" => return Ok(LayoutType::Columns),
+        "grid" => return Ok(LayoutType::Grid),
+        "master-stack" => return Ok(LayoutType::MasterStack),
+        "maximize" => return Ok(LayoutType::Maximize),
+        "custom" => return Ok(LayoutType::Custom),
+        other => return Err(mlua::Error::external(format!(
             "Unknown layout type: {}",
             other
         ))),
@@ -1925,7 +1923,7 @@ fn parse_margins(t: &Table) -> LuaResult<Margins> {
     let bottom: f64 = t.get("bottom").unwrap_or(0.);
     let left: f64 = t.get("left").unwrap_or(0.);
     let right: f64 = t.get("right").unwrap_or(0.);
-    Ok(Margins {
+    return Ok(Margins {
         top,
         bottom,
         left,
@@ -1972,7 +1970,7 @@ fn parse_layout(t: &Table, callbacks: &Arc<Mutex<Vec<Function>>>) -> LuaResult<L
         }
     }
 
-    Ok(layout)
+    return Ok(layout)
 }
 
 /// Parse a single shader uniform value. Numbers become floats, integers become
@@ -2023,7 +2021,7 @@ fn parse_shader_uniform_value(name: String, value: Value) -> LuaResult<ShaderUni
             )));
         }
     };
-    Ok(uniform)
+    return Ok(uniform)
 }
 
 /// Parse a `bk.shader` config table.
@@ -2036,7 +2034,7 @@ fn parse_shader_uniform_value(name: String, value: Value) -> LuaResult<ShaderUni
 /// ```
 fn parse_custom_shader(t: &Table) -> LuaResult<CustomShaderConfig> {
     let name: String = t.get("name")?;
-    let kind_str: String = t.get("kind").unwrap_or_else(|_| "postprocess".to_string());
+    let kind_str: String = t.get("kind").unwrap_or_else(|_| return "postprocess".to_string());
     let kind = match kind_str.as_str() {
         "postprocess" => CustomShaderKind::PostProcess,
         "full" => CustomShaderKind::Full,
@@ -2061,7 +2059,7 @@ fn parse_custom_shader(t: &Table) -> LuaResult<CustomShaderConfig> {
         }
     }
 
-    Ok(CustomShaderConfig {
+    return Ok(CustomShaderConfig {
         name,
         kind,
         fragment,
@@ -2086,8 +2084,8 @@ fn resolve_fragment_source(fragment: &str) -> LuaResult<String> {
     }
 
     let path = config_dir().join(trimmed);
-    fs::read_to_string(&path).map_err(|err| {
-        mlua::Error::external(format!("Failed to read shader file {:?}: {err}", path))
+    return fs::read_to_string(&path).map_err(|err| {
+        return mlua::Error::external(format!("Failed to read shader file {:?}: {err}", path))
     })
 }
 
@@ -2118,7 +2116,7 @@ fn parse_window_rules(table: &Table) -> LuaResult<Vec<WindowRule>> {
             blur,
         });
     }
-    Ok(rules)
+    return Ok(rules)
 }
 
 /// Parse a partial window config where all fields are optional.
@@ -2159,7 +2157,7 @@ fn parse_partial_window(table: &Table) -> LuaResult<PartialWindowConfig> {
         None
     };
 
-    Ok(PartialWindowConfig {
+    return Ok(PartialWindowConfig {
         prefer_no_csd,
         border,
         shadow,
@@ -2185,7 +2183,7 @@ fn parse_layer_rules(table: &Table) -> LuaResult<Vec<LayerRule>> {
 
         rules.push(LayerRule { namespace, blur });
     }
-    Ok(rules)
+    return Ok(rules)
 }
 
 /// Helper: parse a border config table (reused by window rules).
@@ -2209,7 +2207,7 @@ fn parse_border_config(table: &Table) -> LuaResult<BorderConfig> {
     } else {
         [0.3, 0.3, 0.3, 1.0]
     };
-    Ok(BorderConfig {
+    return Ok(BorderConfig {
         width: width.unwrap_or(0.0),
         color,
         inactive_color,
@@ -2251,7 +2249,7 @@ fn parse_shadow_config(table: &Table) -> LuaResult<ShadowConfig> {
     if let Some(spread) = spread {
         sc.spread = spread;
     }
-    Ok(sc)
+    return Ok(sc)
 }
 
 #[cfg(test)]

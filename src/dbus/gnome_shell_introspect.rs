@@ -38,10 +38,10 @@ impl Introspect {
         }
 
         match self.from_state.recv().await {
-            Ok(StateToIntrospect::Windows(windows)) => Ok(windows),
+            Ok(StateToIntrospect::Windows(windows)) => return Ok(windows),
             Err(err) => {
                 warn!("error receiving message from state: {err:?}");
-                Err(fdo::Error::Failed("internal error".to_owned()))
+                return Err(fdo::Error::Failed("internal error".to_owned()))
             }
         }
     }
@@ -51,12 +51,12 @@ impl Introspect {
 
     #[zbus(property)]
     fn animations_enabled(&self) -> bool {
-        true
+        return true
     }
 
     #[zbus(property)]
     fn version(&self) -> u32 {
-        3
+        return 3
     }
 }
 
@@ -65,7 +65,7 @@ impl Introspect {
         to_state: calloop::channel::Sender<IntrospectToState>,
         from_state: async_channel::Receiver<StateToIntrospect>,
     ) -> Self {
-        Self {
+        return Self {
             to_state,
             from_state,
         }
@@ -83,6 +83,6 @@ impl Start for Introspect {
             .at("/org/gnome/Shell/Introspect", self)?;
         conn.request_name_with_flags("org.gnome.Shell.Introspect", flags)?;
 
-        Ok(conn)
+        return Ok(conn)
     }
 }

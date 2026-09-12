@@ -41,7 +41,7 @@ pub fn listen_eis(handle: &calloop::LoopHandle<'static, AnvilState<UdevData>>) {
                     }
                 })
                 .unwrap();
-            Ok(calloop::PostAction::Continue)
+            return Ok(calloop::PostAction::Continue)
         })
         .unwrap();
 }

@@ -1,3 +1,7 @@
+// Explicit returns are mandated project-wide; needless_return contradicts it.
+#![warn(clippy::implicit_return)]
+#![allow(clippy::needless_return)]
+
 use std::fs;
 use std::io::{self, IsTerminal, Write};
 use std::os::unix::io::{AsFd, BorrowedFd};
@@ -21,7 +25,7 @@ struct Card(fs::File);
 
 impl AsFd for Card {
     fn as_fd(&self) -> BorrowedFd<'_> {
-        self.0.as_fd()
+        return self.0.as_fd()
     }
 }
 
@@ -101,10 +105,10 @@ fn print_usage() {
 // ---------------------------------------------------------------------------
 
 fn cmd_output(args: &[String]) -> Result<(), String> {
-    let lua_output = args.iter().any(|a| a == "--lua" || a == "-l");
+    let lua_output = args.iter().any(|a| return a == "--lua" || a == "-l");
 
     let connectors = enumerate_connectors().map_err(|e| {
-        format!("{e}\nHint: This tool needs access to DRM devices. Try running with appropriate permissions.")
+        return format!("{e}\nHint: This tool needs access to DRM devices. Try running with appropriate permissions.")
     })?;
 
     if connectors.is_empty() {
@@ -117,7 +121,7 @@ fn cmd_output(args: &[String]) -> Result<(), String> {
     } else {
         print_human_output(&connectors);
     }
-    Ok(())
+    return Ok(())
 }
 
 // ---------------------------------------------------------------------------
@@ -142,10 +146,10 @@ fn cmd_outputs(_args: &[String]) -> Result<(), String> {
                 println!("  Resolution: {}x{}", out.width, out.height);
                 println!("  Scale: {}", out.scale);
             }
-            Ok(())
+            return Ok(())
         }
-        IpcResponse::Error { message } => Err(format!("compositor error: {message}")),
-        _ => Err("unexpected response from compositor".to_owned()),
+        IpcResponse::Error { message } => return Err(format!("compositor error: {message}")),
+        _ => return Err("unexpected response from compositor".to_owned()),
     }
 }
 
@@ -160,26 +164,26 @@ fn cmd_window(args: &[String]) -> Result<(), String> {
     }
 
     match args[0].as_str() {
-        "list" => window_list(),
+        "list" => return window_list(),
         "focus" => {
             let id = parse_id(args.get(1))?;
-            window_dispatch(IpcRequest::FocusWindow { id })
+            return window_dispatch(IpcRequest::FocusWindow { id })
         }
         "close" => {
             let id = parse_id(args.get(1))?;
-            window_dispatch(IpcRequest::CloseWindow { id })
+            return window_dispatch(IpcRequest::CloseWindow { id })
         }
         "move" => {
             let id = parse_id(args.get(1))?;
             let x = parse_i32(args.get(2), "x")?;
             let y = parse_i32(args.get(3), "y")?;
-            window_dispatch(IpcRequest::MoveWindow { id, x, y })
+            return window_dispatch(IpcRequest::MoveWindow { id, x, y })
         }
         "resize" => {
             let id = parse_id(args.get(1))?;
             let w = parse_i32(args.get(2), "width")?;
             let h = parse_i32(args.get(3), "height")?;
-            window_dispatch(IpcRequest::ResizeWindow { id, w, h })
+            return window_dispatch(IpcRequest::ResizeWindow { id, w, h })
         }
         _ => {
             eprintln!("Unknown window subcommand: {}", args[0]);
@@ -201,22 +205,22 @@ fn window_list() -> Result<(), String> {
             }
             // Compute column widths for nice alignment.
             println!(
-                "{:<6} {:<24} {:<24} {}",
-                "ID", "Title", "App ID", "Geometry"
+                "{:<6} {:<24} {:<24} Geometry",
+                "ID", "Title", "App ID"
             );
             for w in &windows {
                 let geo = w
                     .geometry
                     .map(|(x, y, w, h)| format!("{x},{y} {w}x{h}"))
-                    .unwrap_or_else(|| "—".to_owned());
+                    .unwrap_or_else(|| return "—".to_owned());
                 let title = truncate(&w.title, 24);
                 let app_id = truncate(&w.app_id, 24);
                 println!("{:<6} {:<24} {:<24} {}", w.id, title, app_id, geo);
             }
-            Ok(())
+            return Ok(())
         }
-        IpcResponse::Error { message } => Err(format!("compositor error: {message}")),
-        _ => Err("unexpected response from compositor".to_owned()),
+        IpcResponse::Error { message } => return Err(format!("compositor error: {message}")),
+        _ => return Err("unexpected response from compositor".to_owned()),
     }
 }
 
@@ -225,9 +229,9 @@ fn window_dispatch(request: IpcRequest) -> Result<(), String> {
         send_request(&request).map_err(|e| format!("Failed to send request: {e}"))?;
 
     match response {
-        IpcResponse::Ok => Ok(()),
-        IpcResponse::Error { message } => Err(format!("compositor error: {message}")),
-        _ => Err("unexpected response from compositor".to_owned()),
+        IpcResponse::Ok => return Ok(()),
+        IpcResponse::Error { message } => return Err(format!("compositor error: {message}")),
+        _ => return Err("unexpected response from compositor".to_owned()),
     }
 }
 
@@ -247,7 +251,7 @@ fn cmd_screenshot(args: &[String]) -> Result<(), String> {
                 output_name = Some(
                     args.get(i)
                         .cloned()
-                        .ok_or_else(|| "--output requires a name".to_owned())?,
+                        .ok_or_else(|| return "--output requires a name".to_owned())?,
                 );
             }
             "--file" => {
@@ -255,7 +259,7 @@ fn cmd_screenshot(args: &[String]) -> Result<(), String> {
                 file_path = Some(
                     args.get(i)
                         .cloned()
-                        .ok_or_else(|| "--file requires a path".to_owned())?,
+                        .ok_or_else(|| return "--file requires a path".to_owned())?,
                 );
             }
             "--help" | "-h" => {
@@ -295,10 +299,10 @@ fn cmd_screenshot(args: &[String]) -> Result<(), String> {
                     .map_err(|e| format!("failed to write to stdout: {e}"))?;
                 let _ = lock.flush();
             }
-            Ok(())
+            return Ok(())
         }
-        (IpcResponse::Error { message }, _) => Err(format!("compositor error: {message}")),
-        _ => Err("unexpected response from compositor".to_owned()),
+        (IpcResponse::Error { message }, _) => return Err(format!("compositor error: {message}")),
+        _ => return Err("unexpected response from compositor".to_owned()),
     }
 }
 
@@ -307,24 +311,24 @@ fn cmd_screenshot(args: &[String]) -> Result<(), String> {
 // ---------------------------------------------------------------------------
 
 fn parse_id(arg: Option<&String>) -> Result<u64, String> {
-    arg.ok_or_else(|| "missing window id".to_owned())?
+    return arg.ok_or_else(|| return "missing window id".to_owned())?
         .parse::<u64>()
         .map_err(|e| format!("invalid window id: {e}"))
 }
 
 fn parse_i32(arg: Option<&String>, name: &str) -> Result<i32, String> {
-    arg.ok_or_else(|| format!("missing {name}"))?
+    return arg.ok_or_else(|| format!("missing {name}"))?
         .parse::<i32>()
         .map_err(|e| format!("invalid {name}: {e}"))
 }
 
 fn truncate(s: &str, max: usize) -> String {
     if s.chars().count() <= max {
-        s.to_owned()
+        return s.to_owned()
     } else {
         let mut out: String = s.chars().take(max - 1).collect();
         out.push('…');
-        out
+        return out
     }
 }
 
@@ -350,7 +354,7 @@ struct ModeInfo {
 
 impl ModeInfo {
     fn refresh_hz(&self) -> f64 {
-        self.refresh_mhz as f64 / 1000.0
+        return self.refresh_mhz as f64 / 1000.0
     }
 }
 
@@ -376,14 +380,14 @@ fn enumerate_connectors() -> Result<Vec<ConnectorInfo>, Box<dyn std::error::Erro
         }
     }
 
-    Ok(result)
+    return Ok(result)
 }
 
 fn get_seat_name() -> Result<String, Box<dyn std::error::Error>> {
     if let Ok(seat) = std::env::var("XDG_SESSION_SEAT") {
         return Ok(seat);
     }
-    Ok("seat0".into())
+    return Ok("seat0".into())
 }
 
 fn get_gpu_paths(seat: &str) -> Result<Vec<PathBuf>, Box<dyn std::error::Error>> {
@@ -406,7 +410,7 @@ fn get_gpu_paths(seat: &str) -> Result<Vec<PathBuf>, Box<dyn std::error::Error>>
         }
     }
 
-    Ok(paths)
+    return Ok(paths)
 }
 
 fn find_card_devices() -> Result<Vec<PathBuf>, Box<dyn std::error::Error>> {
@@ -420,7 +424,7 @@ fn find_card_devices() -> Result<Vec<PathBuf>, Box<dyn std::error::Error>> {
         }
     }
     paths.sort();
-    Ok(paths)
+    return Ok(paths)
 }
 
 fn scan_drm_device(path: &PathBuf) -> Result<Vec<ConnectorInfo>, Box<dyn std::error::Error>> {
@@ -450,14 +454,14 @@ fn scan_drm_device(path: &PathBuf) -> Result<Vec<ConnectorInfo>, Box<dyn std::er
 
         let make = info
             .as_ref()
-            .and_then(|i| i.make())
-            .unwrap_or_else(|| "Unknown".into())
+            .and_then(|i| return i.make())
+            .unwrap_or_else(|| return "Unknown".into())
             .to_string();
 
         let model = info
             .as_ref()
-            .and_then(|i| i.model())
-            .unwrap_or_else(|| "Unknown".into())
+            .and_then(|i| return i.model())
+            .unwrap_or_else(|| return "Unknown".into())
             .to_string();
 
         let modes: Vec<ModeInfo> = conn_info
@@ -465,7 +469,7 @@ fn scan_drm_device(path: &PathBuf) -> Result<Vec<ConnectorInfo>, Box<dyn std::er
             .iter()
             .map(|mode| {
                 let mode_type = mode.mode_type();
-                ModeInfo {
+                return ModeInfo {
                     width: mode.size().0 as u32,
                     height: mode.size().1 as u32,
                     refresh_mhz: mode.vrefresh(),
@@ -488,7 +492,7 @@ fn scan_drm_device(path: &PathBuf) -> Result<Vec<ConnectorInfo>, Box<dyn std::er
         });
     }
 
-    Ok(connectors)
+    return Ok(connectors)
 }
 
 fn open_drm_device(path: &PathBuf) -> Result<Card, Box<dyn std::error::Error>> {
@@ -500,7 +504,7 @@ fn open_drm_device(path: &PathBuf) -> Result<Card, Box<dyn std::error::Error>> {
         .custom_flags(OFlags::CLOEXEC.bits() as i32)
         .open(path)?;
 
-    Ok(Card(file))
+    return Ok(Card(file))
 }
 
 fn print_human_output(connectors: &[ConnectorInfo]) {
@@ -514,11 +518,10 @@ fn print_human_output(connectors: &[ConnectorInfo]) {
         println!("  Make:  {}", conn.make);
         println!("  Model: {}", conn.model);
 
-        if let Some((w, h)) = conn.physical_size {
-            if w > 0 && h > 0 {
+        if let Some((w, h)) = conn.physical_size
+            && w > 0 && h > 0 {
                 println!("  Physical size: {}x{} mm", w, h);
             }
-        }
 
         println!("  Modes:");
         for mode in &conn.modes {
@@ -544,8 +547,8 @@ fn print_lua_output(connectors: &[ConnectorInfo]) {
     println!("outputs = {{");
 
     for (i, conn) in connectors.iter().enumerate() {
-        let preferred = conn.modes.iter().find(|m| m.preferred);
-        let mode = preferred.or_else(|| conn.modes.first());
+        let preferred = conn.modes.iter().find(|m| return m.preferred);
+        let mode = preferred.or_else(|| return conn.modes.first());
 
         if i > 0 {
             println!(",");
@@ -566,11 +569,10 @@ fn print_lua_output(connectors: &[ConnectorInfo]) {
             );
         }
 
-        if let Some((w, h)) = conn.physical_size {
-            if w > 0 && h > 0 {
+        if let Some((w, h)) = conn.physical_size
+            && w > 0 && h > 0 {
                 println!("        -- Physical size: {}x{} mm", w, h);
             }
-        }
 
         println!("        -- Make: {}, Model: {}", conn.make, conn.model);
 

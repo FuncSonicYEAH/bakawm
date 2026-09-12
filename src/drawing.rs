@@ -35,7 +35,7 @@ pub struct PointerElement {
 
 impl Default for PointerElement {
     fn default() -> Self {
-        Self {
+        return Self {
             buffer: Default::default(),
             status: CursorImageStatus::default_named(),
         }
@@ -67,9 +67,9 @@ render_elements! {
 impl<R: Renderer> std::fmt::Debug for PointerRenderElement<R> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Self::Surface(arg0) => f.debug_tuple("Surface").field(arg0).finish(),
-            Self::Memory(arg0) => f.debug_tuple("Memory").field(arg0).finish(),
-            Self::_GenericCatcher(arg0) => f.debug_tuple("_GenericCatcher").field(arg0).finish(),
+            Self::Surface(arg0) => return f.debug_tuple("Surface").field(arg0).finish(),
+            Self::Memory(arg0) => return f.debug_tuple("Memory").field(arg0).finish(),
+            Self::_GenericCatcher(arg0) => return f.debug_tuple("_GenericCatcher").field(arg0).finish(),
         }
     }
 }
@@ -90,11 +90,11 @@ where
         E: From<PointerRenderElement<R>>,
     {
         match &self.status {
-            CursorImageStatus::Hidden => vec![],
+            CursorImageStatus::Hidden => return vec![],
             // Always render `Default` for a named shape.
             CursorImageStatus::Named(_) => {
                 if let Some(buffer) = self.buffer.as_ref() {
-                    vec![
+                    return vec![
                         PointerRenderElement::<R>::from(
                             MemoryRenderBufferRenderElement::from_buffer(
                                 renderer,
@@ -110,7 +110,7 @@ where
                         .into(),
                     ]
                 } else {
-                    vec![]
+                    return vec![]
                 }
             }
             CursorImageStatus::Surface(surface) => {
@@ -123,7 +123,7 @@ where
                         alpha,
                         Kind::Cursor,
                     );
-                elements.into_iter().map(E::from).collect()
+                return elements.into_iter().map(E::from).collect()
             }
         }
     }
@@ -168,12 +168,12 @@ pub struct FpsElement<T: Texture> {
 #[cfg(feature = "debug")]
 impl<T: Texture> FpsElement<T> {
     pub fn new(texture: T) -> Self {
-        FpsElement {
+        return FpsElement {
             id: Id::new(),
             texture,
             value: 0,
             commit_counter: CommitCounter::default(),
-        }
+        };
     }
 
     pub fn update_fps(&mut self, fps: u32) {
@@ -190,11 +190,11 @@ where
     T: Texture + 'static,
 {
     fn id(&self) -> &Id {
-        &self.id
+        return &self.id;
     }
 
     fn location(&self, _scale: Scale<f64>) -> Point<i32, Physical> {
-        (0, 0).into()
+        return (0, 0).into();
     }
 
     fn src(&self) -> Rectangle<f64, Buffer> {
@@ -205,7 +205,7 @@ where
         } else {
             3
         };
-        Rectangle::from_size((24 * digits, 35).into()).to_f64()
+        return Rectangle::from_size((24 * digits, 35).into()).to_f64();
     }
 
     fn geometry(&self, scale: Scale<f64>) -> Rectangle<i32, Physical> {
@@ -216,11 +216,11 @@ where
         } else {
             3
         };
-        Rectangle::from_size((24 * digits, 35).into()).to_physical_precise_round(scale)
+        return Rectangle::from_size((24 * digits, 35).into()).to_physical_precise_round(scale);
     }
 
     fn current_commit(&self) -> CommitCounter {
-        self.commit_counter
+        return self.commit_counter;
     }
 }
 
@@ -243,7 +243,7 @@ where
         let scale = dst.size.to_f64() / self.src().size;
         let value_str = std::cmp::min(self.value, 999).to_string();
         let mut offset: Point<f64, Physical> = Point::from((0.0, 0.0));
-        for digit in value_str.chars().map(|d| d.to_digit(10).unwrap()) {
+        for digit in value_str.chars().map(|d| return d.to_digit(10).unwrap()) {
             let digit_location = dst.loc.to_f64() + offset;
             let digit_size = Size::<i32, Logical>::from((22, 35))
                 .to_f64()
@@ -257,10 +257,10 @@ where
             let damage = damage
                 .iter()
                 .cloned()
-                .flat_map(|x| x.intersection(dst))
+                .flat_map(|x| return x.intersection(dst))
                 .map(|mut x| {
                     x.loc -= dst.loc;
-                    x
+                    return x;
                 })
                 .collect::<Vec<_>>();
             let texture_src: Rectangle<i32, Buffer> = match digit {
@@ -289,6 +289,6 @@ where
             offset += Point::from((24.0, 0.0)).to_physical(scale);
         }
 
-        Ok(())
+        return Ok(());
     }
 }

@@ -21,20 +21,20 @@ impl ServiceChannel {
         }
 
         let (sock1, sock2) = UnixStream::pair()
-            .map_err(|e| fdo::Error::Failed(format!("failed to create socket pair: {e}")))?;
+            .map_err(|e| return fdo::Error::Failed(format!("failed to create socket pair: {e}")))?;
 
         if let Err(err) = self.to_state.send(sock2) {
             tracing::warn!("error sending service channel client to state: {err:?}");
             return Err(fdo::Error::Failed("internal error".to_owned()));
         }
 
-        Ok(zvariant::OwnedFd::from(std::os::fd::OwnedFd::from(sock1)))
+        return Ok(zvariant::OwnedFd::from(std::os::fd::OwnedFd::from(sock1)))
     }
 }
 
 impl ServiceChannel {
     pub fn new(to_state: calloop::channel::Sender<UnixStream>) -> Self {
-        Self { to_state }
+        return Self { to_state }
     }
 }
 
@@ -44,6 +44,6 @@ impl Start for ServiceChannel {
             .name("org.gnome.Mutter.ServiceChannel")?
             .serve_at("/org/gnome/Mutter/ServiceChannel", self)?
             .build()?;
-        Ok(conn)
+        return Ok(conn)
     }
 }

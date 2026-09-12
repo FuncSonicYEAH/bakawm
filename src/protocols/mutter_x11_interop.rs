@@ -11,7 +11,7 @@ pub struct MutterX11InteropManagerState {}
 
 impl std::fmt::Debug for MutterX11InteropManagerState {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("MutterX11InteropManagerState").finish()
+        return f.debug_struct("MutterX11InteropManagerState").finish()
     }
 }
 
@@ -35,7 +35,7 @@ impl MutterX11InteropManagerState {
         };
         display.create_global::<D, MutterX11Interop, _>(VERSION, global_data);
 
-        Self {}
+        return Self {}
     }
 }
 
@@ -59,7 +59,7 @@ where
     }
 
     fn can_view(client: Client, global_data: &MutterX11InteropManagerGlobalData) -> bool {
-        (global_data.filter)(&client)
+        return (global_data.filter)(&client)
     }
 }
 

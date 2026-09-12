@@ -32,7 +32,7 @@ pub struct DBusServers {
 
 impl Default for DBusServers {
     fn default() -> Self {
-        Self {
+        return Self {
             conn_service_channel: None,
             conn_display_config: None,
             conn_screen_cast: None,
@@ -43,7 +43,7 @@ impl Default for DBusServers {
 
 impl std::fmt::Debug for DBusServers {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("DBusServers")
+        return f.debug_struct("DBusServers")
             .field("conn_service_channel", &self.conn_service_channel.is_some())
             .field("conn_display_config", &self.conn_display_config.is_some())
             .field("conn_screen_cast", &self.conn_screen_cast.is_some())
@@ -117,10 +117,10 @@ impl DBusServers {
 
 fn try_start<I: Start>(iface: I) -> Option<Connection> {
     match iface.start() {
-        Ok(conn) => Some(conn),
+        Ok(conn) => return Some(conn),
         Err(err) => {
             warn!("error starting {}: {err:?}", I::name());
-            None
+            return None
         }
     }
 }

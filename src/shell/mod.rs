@@ -63,19 +63,19 @@ fn fullscreen_output_geometry(
 ) -> Option<Rectangle<i32, Logical>> {
     // First test if a specific output has been requested
     // if the requested output is not found ignore the request
-    wl_output
+    return wl_output
         .and_then(Output::from_resource)
         .or_else(|| {
             let w = space.elements().find(|window| {
-                window
+                return window
                     .wl_surface()
-                    .map(|s| &*s == wl_surface)
+                    .map(|s| return &*s == wl_surface)
                     .unwrap_or(false)
             });
-            w.and_then(|w| space.outputs_for_element(w).first().cloned())
+            return w.and_then(|w| return space.outputs_for_element(w).first().cloned())
         })
         .as_ref()
-        .and_then(|o| space.output_geometry(o))
+        .and_then(|o| return space.output_geometry(o))
 }
 
 #[derive(Default)]
@@ -88,14 +88,14 @@ impl FullscreenSurface {
 
     pub fn get(&self) -> Option<WindowElement> {
         let mut window = self.0.borrow_mut();
-        if window.as_ref().map(|w| !w.alive()).unwrap_or(false) {
+        if window.as_ref().map(|w| return !w.alive()).unwrap_or(false) {
             *window = None;
         }
-        window.clone()
+        return window.clone()
     }
 
     pub fn clear(&self) -> Option<WindowElement> {
-        self.0.borrow_mut().take()
+        return self.0.borrow_mut().take()
     }
 }
 
@@ -105,7 +105,7 @@ impl<BackendData: Backend> BufferHandler for AnvilState<BackendData> {
 
 impl<BackendData: Backend> CompositorHandler for AnvilState<BackendData> {
     fn compositor_state(&mut self) -> &mut CompositorState {
-        &mut self.compositor_state
+        return &mut self.compositor_state
     }
     fn client_compositor_state<'a>(&self, client: &'a Client) -> &'a CompositorClientState {
         #[cfg(feature = "xwayland")]
@@ -130,7 +130,7 @@ impl<BackendData: Backend> CompositorHandler for AnvilState<BackendData> {
         let Some(window) = self
             .space
             .elements()
-            .find(|w| w.wl_surface().as_deref() == Some(surface))
+            .find(|w| return w.wl_surface().as_deref() == Some(surface))
             .cloned()
         else {
             return;
@@ -150,7 +150,7 @@ impl<BackendData: Backend> CompositorHandler for AnvilState<BackendData> {
         let output = self.space.outputs_for_element(&window).first().cloned();
         let config = self.config.clone();
         let snapshot = self.backend_data.with_primary_renderer(|renderer| {
-            crate::state::AnvilState::<BackendData>::capture_close_snapshot(
+            return crate::state::AnvilState::<BackendData>::capture_close_snapshot(
                 &self.space,
                 &config,
                 &window,
@@ -178,47 +178,45 @@ impl<BackendData: Backend> CompositorHandler for AnvilState<BackendData> {
                         .pending()
                         .acquire_point,
                 );
-                surface_data
+                return surface_data
                     .cached_state
                     .get::<SurfaceAttributes>()
                     .pending()
                     .buffer
                     .as_ref()
                     .and_then(|assignment| match assignment {
-                        BufferAssignment::NewBuffer(buffer) => get_dmabuf(buffer).cloned().ok(),
-                        _ => None,
+                        BufferAssignment::NewBuffer(buffer) => return get_dmabuf(buffer).cloned().ok(),
+                        _ => return None,
                     })
             });
             if let Some(dmabuf) = maybe_dmabuf {
                 #[cfg(feature = "udev")]
-                if let Some(acquire_point) = acquire_point {
-                    if let Ok((blocker, source)) = acquire_point.generate_blocker() {
+                if let Some(acquire_point) = acquire_point
+                    && let Ok((blocker, source)) = acquire_point.generate_blocker() {
                         let client = surface.client().unwrap();
                         let res = state.handle.insert_source(source, move |_, _, data| {
                             let dh = data.display_handle.clone();
                             data.client_compositor_state(&client)
                                 .blocker_cleared(data, &dh);
-                            Ok(())
+                            return Ok(())
                         });
                         if res.is_ok() {
                             add_blocker(surface, blocker);
                             return;
                         }
                     }
-                }
-                if let Ok((blocker, source)) = dmabuf.generate_blocker(Interest::READ) {
-                    if let Some(client) = surface.client() {
+                if let Ok((blocker, source)) = dmabuf.generate_blocker(Interest::READ)
+                    && let Some(client) = surface.client() {
                         let res = state.handle.insert_source(source, move |_, _, data| {
                             let dh = data.display_handle.clone();
                             data.client_compositor_state(&client)
                                 .blocker_cleared(data, &dh);
-                            Ok(())
+                            return Ok(())
                         });
                         if res.is_ok() {
                             add_blocker(surface, blocker);
                         }
                     }
-                }
             }
         });
     }
@@ -237,7 +235,7 @@ impl<BackendData: Backend> CompositorHandler for AnvilState<BackendData> {
 
                 if &root == surface {
                     let buffer_offset = with_states(surface, |states| {
-                        states
+                        return states
                             .cached_state
                             .get::<SurfaceAttributes>()
                             .current()
@@ -261,7 +259,7 @@ impl<BackendData: Backend> CompositorHandler for AnvilState<BackendData> {
                 let cursor_image_attributes = states.data_map.get::<CursorImageSurfaceData>();
 
                 if let Some(mut cursor_image_attributes) =
-                    cursor_image_attributes.map(|attrs| attrs.lock().unwrap())
+                    cursor_image_attributes.map(|attrs| return attrs.lock().unwrap())
                 {
                     let buffer_delta = states
                         .cached_state
@@ -298,7 +296,7 @@ impl<BackendData: Backend> CompositorHandler for AnvilState<BackendData> {
 
 impl<BackendData: Backend> WlrLayerShellHandler for AnvilState<BackendData> {
     fn shell_state(&mut self) -> &mut WlrLayerShellState {
-        &mut self.layer_shell_state
+        return &mut self.layer_shell_state
     }
 
     fn new_layer_surface(
@@ -311,7 +309,7 @@ impl<BackendData: Backend> WlrLayerShellHandler for AnvilState<BackendData> {
         let output = wl_output
             .as_ref()
             .and_then(Output::from_resource)
-            .unwrap_or_else(|| self.space.outputs().next().unwrap().clone());
+            .unwrap_or_else(|| return self.space.outputs().next().unwrap().clone());
         {
             let mut map = layer_map_for_output(&output);
             map.map_layer(&LayerSurface::new(surface, namespace))
@@ -332,9 +330,9 @@ impl<BackendData: Backend> WlrLayerShellHandler for AnvilState<BackendData> {
                 let map = layer_map_for_output(o);
                 let layer = map
                     .layers()
-                    .find(|&layer| layer.layer_surface() == &surface)
+                    .find(|&layer| return layer.layer_surface() == &surface)
                     .cloned();
-                layer.map(|layer| (o.clone(), layer))
+                return layer.map(|layer| return (o.clone(), layer))
             });
         if let Some((output, layer)) = output_layer {
             {
@@ -350,9 +348,9 @@ impl<BackendData: Backend> WlrLayerShellHandler for AnvilState<BackendData> {
 
 impl<BackendData: Backend> AnvilState<BackendData> {
     pub fn window_for_surface(&self, surface: &WlSurface) -> Option<WindowElement> {
-        self.space
+        return self.space
             .elements()
-            .find(|window| window.wl_surface().map(|s| &*s == surface).unwrap_or(false))
+            .find(|window| return window.wl_surface().map(|s| return &*s == surface).unwrap_or(false))
             .cloned()
     }
 }
@@ -372,25 +370,25 @@ fn ensure_initial_configure(
     with_surface_tree_upward(
         surface,
         (),
-        |_, _, _| TraversalAction::DoChildren(()),
+        |_, _, _| return TraversalAction::DoChildren(()),
         |_, states, _| {
             states
                 .data_map
-                .insert_if_missing(|| RefCell::new(SurfaceData::default()));
+                .insert_if_missing(|| return RefCell::new(SurfaceData::default()));
         },
-        |_, _, _| true,
+        |_, _, _| return true,
     );
 
     if let Some(window) = space
         .elements()
-        .find(|window| window.wl_surface().map(|s| &*s == surface).unwrap_or(false))
+        .find(|window| return window.wl_surface().map(|s| return &*s == surface).unwrap_or(false))
         .cloned()
     {
         // send the initial configure if relevant
         #[cfg_attr(not(feature = "xwayland"), allow(irrefutable_let_patterns))]
         if let Some(toplevel) = window.0.toplevel() {
             let initial_configure_sent = with_states(surface, |states| {
-                states
+                return states
                     .data_map
                     .get::<XdgToplevelSurfaceData>()
                     .unwrap()
@@ -439,11 +437,11 @@ fn ensure_initial_configure(
 
     if let Some(output) = space.outputs().find(|o| {
         let map = layer_map_for_output(o);
-        map.layer_for_surface(surface, WindowSurfaceType::TOPLEVEL)
+        return map.layer_for_surface(surface, WindowSurfaceType::TOPLEVEL)
             .is_some()
     }) {
         let initial_configure_sent = with_states(surface, |states| {
-            states
+            return states
                 .data_map
                 .get::<LayerSurfaceData>()
                 .unwrap()
@@ -477,16 +475,16 @@ fn place_new_window(
     let output = space
         .output_under(pointer_location)
         .next()
-        .or_else(|| space.outputs().next())
+        .or_else(|| return space.outputs().next())
         .cloned();
     let output_geometry = output
         .and_then(|o| {
             let geo = space.output_geometry(&o)?;
             let map = layer_map_for_output(&o);
             let zone = map.non_exclusive_zone();
-            Some(Rectangle::new(geo.loc + zone.loc, zone.size))
+            return Some(Rectangle::new(geo.loc + zone.loc, zone.size))
         })
-        .unwrap_or_else(|| Rectangle::from_size((800, 800).into()));
+        .unwrap_or_else(|| return Rectangle::from_size((800, 800).into()));
 
     #[allow(irrefutable_let_patterns)]
     if let Some(toplevel) = window.0.toplevel() {
@@ -506,11 +504,11 @@ fn place_new_window(
 
     space.map_element(window.clone(), (x, y), activate);
 
-    if needs_center {
-        if let Some(surface) = window.wl_surface().as_deref() {
+    if needs_center
+        && let Some(surface) = window.wl_surface().as_deref() {
             with_states(surface, |states| {
                 states.data_map.insert_if_missing(|| {
-                    RefCell::new(SurfaceData {
+                    return RefCell::new(SurfaceData {
                         needs_center: true,
                         ..Default::default()
                     })
@@ -520,9 +518,8 @@ fn place_new_window(
                 }
             });
         }
-    }
 
-    needs_center
+    return needs_center
 }
 
 pub fn fixup_positions(space: &mut Space<WindowElement>, pointer_location: Point<f64, Logical>) {
@@ -531,8 +528,8 @@ pub fn fixup_positions(space: &mut Space<WindowElement>, pointer_location: Point
     for output in space.outputs().cloned().collect::<Vec<_>>().into_iter() {
         let size = space
             .output_geometry(&output)
-            .map(|geo| geo.size)
-            .unwrap_or_else(|| Size::from((0, 0)));
+            .map(|geo| return geo.size)
+            .unwrap_or_else(|| return Size::from((0, 0)));
         space.map_output(&output, offset);
         layer_map_for_output(&output).arrange();
         offset.x += size.w;
@@ -546,7 +543,7 @@ pub fn fixup_positions(space: &mut Space<WindowElement>, pointer_location: Point
             let geo = space.output_geometry(o)?;
             let map = layer_map_for_output(o);
             let zone = map.non_exclusive_zone();
-            Some(Rectangle::new(geo.loc + zone.loc, zone.size))
+            return Some(Rectangle::new(geo.loc + zone.loc, zone.size))
         })
         .collect::<Vec<_>>();
     for window in space.elements() {
@@ -556,7 +553,7 @@ pub fn fixup_positions(space: &mut Space<WindowElement>, pointer_location: Point
         };
         let geo_loc = window.bbox().loc + window_location;
 
-        if !outputs.iter().any(|o_geo| o_geo.contains(geo_loc)) {
+        if !outputs.iter().any(|o_geo| return o_geo.contains(geo_loc)) {
             orphaned_windows.push(window.clone());
         }
     }

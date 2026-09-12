@@ -36,7 +36,7 @@ enum AnimationKind {
 impl Animation {
     /// Create an animation that is effectively off (instantly reaches target).
     pub fn new_off() -> Self {
-        Self {
+        return Self {
             from: 0.,
             to: 1.,
             initial_velocity: 0.,
@@ -55,7 +55,7 @@ impl Animation {
         let duration = Duration::from_millis(duration_ms as u64);
         let kind = AnimationKind::Easing { curve };
 
-        Self {
+        return Self {
             from,
             to,
             initial_velocity: 0.,
@@ -79,7 +79,7 @@ impl Animation {
             params: spring.params,
         });
 
-        Self {
+        return Self {
             from,
             to,
             initial_velocity: spring.initial_velocity,
@@ -99,7 +99,7 @@ impl Animation {
 
         match self.kind {
             AnimationKind::Easing { curve } => {
-                Self::ease(from, to, self.duration.as_millis() as u32, curve)
+                return Self::ease(from, to, self.duration.as_millis() as u32, curve)
             }
             AnimationKind::Spring(spring) => {
                 let spring = Spring {
@@ -108,7 +108,7 @@ impl Animation {
                     initial_velocity,
                     params: spring.params,
                 };
-                Self::spring(from, to, spring)
+                return Self::spring(from, to, spring)
             }
         }
     }
@@ -119,7 +119,7 @@ impl Animation {
             return true;
         }
 
-        self.start_time.elapsed() >= self.duration
+        return self.start_time.elapsed() >= self.duration
     }
 
     /// Whether the animation has reached its target value.
@@ -128,7 +128,7 @@ impl Animation {
             return true;
         }
 
-        self.start_time.elapsed() >= self.clamped_duration
+        return self.start_time.elapsed() >= self.clamped_duration
     }
 
     /// Get the animation value at a specific elapsed duration.
@@ -146,7 +146,7 @@ impl Animation {
                 let passed = elapsed.as_secs_f64();
                 let total = self.duration.as_secs_f64();
                 let x = (passed / total).clamp(0., 1.);
-                curve.y(x) * (self.to - self.from) + self.from
+                return curve.y(x) * (self.to - self.from) + self.from
             }
             AnimationKind::Spring(spring) => {
                 let value = spring.value_at(elapsed);
@@ -156,9 +156,9 @@ impl Animation {
                 let a = self.from - range;
                 let b = self.to + range;
                 if self.from <= self.to {
-                    value.clamp(a, b)
+                    return value.clamp(a, b)
                 } else {
-                    value.clamp(b, a)
+                    return value.clamp(b, a)
                 }
             }
         }
@@ -169,7 +169,7 @@ impl Animation {
         if self.is_off {
             return self.to;
         }
-        self.value_at(self.start_time.elapsed())
+        return self.value_at(self.start_time.elapsed())
     }
 
     /// Get a value that stops at the target value after first reaching it.
@@ -180,18 +180,18 @@ impl Animation {
             return self.to;
         }
 
-        self.value()
+        return self.value()
     }
 
     pub fn from(&self) -> f64 {
-        self.from
+        return self.from
     }
 
     pub fn to(&self) -> f64 {
-        self.to
+        return self.to
     }
 
     pub fn duration(&self) -> Duration {
-        self.duration
+        return self.duration
     }
 }

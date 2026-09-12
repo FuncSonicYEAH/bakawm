@@ -30,14 +30,14 @@ pub struct ScreencopyQueue {
 
 impl ScreencopyQueue {
     fn new() -> Self {
-        Self {
+        return Self {
             pending_frames: HashSet::new(),
             screencopies: Vec::new(),
         }
     }
 
     pub fn is_empty(&self) -> bool {
-        self.pending_frames.is_empty() && self.screencopies.is_empty()
+        return self.pending_frames.is_empty() && self.screencopies.is_empty()
     }
 
     pub fn push(&mut self, screencopy: Screencopy) {
@@ -46,19 +46,19 @@ impl ScreencopyQueue {
 
     pub fn pop(&mut self) -> Option<Screencopy> {
         if self.screencopies.is_empty() {
-            None
+            return None
         } else {
-            Some(self.screencopies.remove(0))
+            return Some(self.screencopies.remove(0))
         }
     }
 
     pub fn has_screencopies(&self) -> bool {
-        !self.screencopies.is_empty()
+        return !self.screencopies.is_empty()
     }
 
     fn remove_frame(&mut self, frame: &ZwlrScreencopyFrameV1) {
         self.pending_frames.remove(frame);
-        self.screencopies.retain(|s| s.frame != *frame);
+        self.screencopies.retain(|s| return s.frame != *frame);
     }
 }
 
@@ -86,7 +86,7 @@ impl ScreencopyManagerState {
         };
         display.create_global::<D, ZwlrScreencopyManagerV1, _>(VERSION, global_data);
 
-        Self {
+        return Self {
             queues: HashMap::new(),
         }
     }
@@ -96,14 +96,14 @@ impl ScreencopyManagerState {
             f(queue);
         }
         self.queues
-            .retain(|manager, queue| manager.is_alive() || !queue.is_empty());
+            .retain(|manager, queue| return manager.is_alive() || !queue.is_empty());
     }
 
     pub fn remove_output(&mut self, output: &Output) {
         for queue in self.queues.values_mut() {
             queue
                 .screencopies
-                .retain(|screencopy| screencopy.output() != output);
+                .retain(|screencopy| return screencopy.output() != output);
         }
     }
 }
@@ -132,7 +132,7 @@ where
     }
 
     fn can_view(client: Client, global_data: &ScreencopyManagerGlobalData) -> bool {
-        (global_data.filter)(&client)
+        return (global_data.filter)(&client)
     }
 }
 
@@ -263,11 +263,10 @@ where
         _data: &(),
     ) {
         let state = state.screencopy_state();
-        if let Some(queue) = state.queues.get_mut(manager) {
-            if queue.is_empty() {
+        if let Some(queue) = state.queues.get_mut(manager)
+            && queue.is_empty() {
                 state.queues.remove(manager);
             }
-        }
     }
 }
 
@@ -372,7 +371,7 @@ where
                 return;
             }
         } else if shm::with_buffer_contents(&buffer, |_, shm_len, buffer_data| {
-            buffer_data.format == Format::Xrgb8888
+            return buffer_data.format == Format::Xrgb8888
                 && buffer_data.width == size.w
                 && buffer_data.height == size.h
                 && buffer_data.stride == size.w * 4
@@ -448,7 +447,7 @@ pub struct Screencopy {
 
 impl std::fmt::Debug for Screencopy {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("Screencopy")
+        return f.debug_struct("Screencopy")
             .field("with_damage", &self.with_damage)
             .field("submitted", &self.submitted)
             .finish()
@@ -465,27 +464,27 @@ impl Drop for Screencopy {
 
 impl Screencopy {
     pub fn buffer(&self) -> &ScreencopyBuffer {
-        &self.buffer
+        return &self.buffer
     }
 
     pub fn region_loc(&self) -> Point<i32, Physical> {
-        self.info.region_loc
+        return self.info.region_loc
     }
 
     pub fn buffer_size(&self) -> Size<i32, Physical> {
-        self.info.buffer_size
+        return self.info.buffer_size
     }
 
     pub fn output(&self) -> &Output {
-        &self.info.output
+        return &self.info.output
     }
 
     pub fn overlay_cursor(&self) -> bool {
-        self.info.overlay_cursor
+        return self.info.overlay_cursor
     }
 
     pub fn with_damage(&self) -> bool {
-        self.with_damage
+        return self.with_damage
     }
 
     pub fn damage(&self, damages: impl Iterator<Item = Rectangle<i32, smithay::utils::Buffer>>) {

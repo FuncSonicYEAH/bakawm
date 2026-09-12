@@ -131,12 +131,12 @@ impl ScreenCast {
             }
         }
 
-        Ok(path)
+        return Ok(path)
     }
 
     #[zbus(property)]
     async fn version(&self) -> i32 {
-        4
+        return 4
     }
 }
 
@@ -145,7 +145,7 @@ impl Session {
     async fn start(&self) {
         debug!("start");
 
-        for (stream, iface) in &*self.streams.lock().unwrap() {
+        return for (stream, iface) in &*self.streams.lock().unwrap() {
             stream.start(iface.signal_emitter().clone());
         }
     }
@@ -190,7 +190,7 @@ impl Session {
 
         let output = {
             let ipc_outputs = self.ipc_outputs.lock().unwrap();
-            ipc_outputs.values().find(|o| o.name == connector).cloned()
+            ipc_outputs.values().find(|o| return o.name == connector).cloned()
         };
         let Some(output) = output else {
             return Err(fdo::Error::Failed("no such monitor".to_owned()));
@@ -230,7 +230,7 @@ impl Session {
             }
         }
 
-        Ok(path)
+        return Ok(path)
     }
 
     async fn record_window(
@@ -270,7 +270,7 @@ impl Session {
             }
         }
 
-        Ok(path)
+        return Ok(path)
     }
 
     #[zbus(signal)]
@@ -291,18 +291,18 @@ impl Stream {
                 let output = self.target.find_output(&ipc_outputs);
                 if let Some(output) = output {
                     let logical = output.logical.as_ref().unwrap();
-                    StreamParameters {
+                    return StreamParameters {
                         position: (logical.x, logical.y),
                         size: (logical.width as i32, logical.height as i32),
                     }
                 } else {
-                    StreamParameters {
+                    return StreamParameters {
                         position: (0, 0),
                         size: (1, 1),
                     }
                 }
             }
-            StreamTarget::Window { .. } => StreamParameters {
+            StreamTarget::Window { .. } => return StreamParameters {
                 position: (0, 0),
                 size: (1, 1),
             },
@@ -313,15 +313,15 @@ impl Stream {
 impl StreamTarget {
     fn find_output<'a>(&self, ipc_outputs: &'a HashMap<u64, IpcOutput>) -> Option<&'a IpcOutput> {
         match self {
-            StreamTarget::Output { name } => ipc_outputs.values().find(|o| o.name == *name),
-            StreamTarget::Window { .. } => None,
+            StreamTarget::Output { name } => return ipc_outputs.values().find(|o| return o.name == *name),
+            StreamTarget::Window { .. } => return None,
         }
     }
 
     fn make_id(&self) -> StreamTargetId {
         match self {
-            StreamTarget::Output { name } => StreamTargetId::Output { name: name.clone() },
-            StreamTarget::Window { id } => StreamTargetId::Window { id: *id },
+            StreamTarget::Output { name } => return StreamTargetId::Output { name: name.clone() },
+            StreamTarget::Window { id } => return StreamTargetId::Window { id: *id },
         }
     }
 }
@@ -331,7 +331,7 @@ impl ScreenCast {
         ipc_outputs: Arc<Mutex<IpcOutputMap>>,
         to_state: calloop::channel::Sender<ScreenCastToState>,
     ) -> Self {
-        Self {
+        return Self {
             ipc_outputs,
             to_state,
             sessions: Arc::new(Mutex::new(vec![])),
@@ -350,7 +350,7 @@ impl Start for ScreenCast {
             .at("/org/gnome/Mutter/ScreenCast", self)?;
         conn.request_name_with_flags("org.gnome.Mutter.ScreenCast", flags)?;
 
-        Ok(conn)
+        return Ok(conn)
     }
 }
 
@@ -360,7 +360,7 @@ impl Session {
         ipc_outputs: Arc<Mutex<IpcOutputMap>>,
         to_state: calloop::channel::Sender<ScreenCastToState>,
     ) -> Self {
-        Self {
+        return Self {
             id,
             ipc_outputs,
             streams: Arc::new(Mutex::new(vec![])),
@@ -387,7 +387,7 @@ impl Stream {
         to_state: calloop::channel::Sender<ScreenCastToState>,
         ipc_outputs: Arc<Mutex<IpcOutputMap>>,
     ) -> Self {
-        Self {
+        return Self {
             id,
             session_id,
             target,

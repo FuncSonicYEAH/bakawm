@@ -43,7 +43,7 @@ impl ClosingWindow {
         anim: Animation,
         end_scale: f64,
     ) -> Self {
-        Self {
+        return Self {
             buffer,
             geo_size,
             pos,
@@ -55,12 +55,12 @@ impl ClosingWindow {
 
     /// Whether the closing animation is still ongoing.
     pub fn is_animating(&self) -> bool {
-        !self.anim.is_done()
+        return !self.anim.is_done()
     }
 
     /// Get the position of this closing window.
     pub fn pos(&self) -> Point<f64, Logical> {
-        self.pos
+        return self.pos
     }
 
     /// Render this closing window as a render element.
@@ -105,7 +105,7 @@ impl ClosingWindow {
             Relocate::Relative,
         );
 
-        ClosingWindowRenderElement(elem)
+        return ClosingWindowRenderElement(elem)
     }
 }
 
@@ -117,23 +117,23 @@ pub struct ClosingWindowRenderElement(
 
 impl Element for ClosingWindowRenderElement {
     fn id(&self) -> &Id {
-        self.0.id()
+        return self.0.id()
     }
 
     fn current_commit(&self) -> CommitCounter {
-        self.0.current_commit()
+        return self.0.current_commit()
     }
 
     fn geometry(&self, scale: Scale<f64>) -> Rectangle<i32, Physical> {
-        self.0.geometry(scale)
+        return self.0.geometry(scale)
     }
 
     fn transform(&self) -> smithay::utils::Transform {
-        self.0.transform()
+        return self.0.transform()
     }
 
     fn src(&self) -> Rectangle<f64, Buffer> {
-        self.0.src()
+        return self.0.src()
     }
 
     fn damage_since(
@@ -141,19 +141,19 @@ impl Element for ClosingWindowRenderElement {
         scale: Scale<f64>,
         commit: Option<CommitCounter>,
     ) -> smithay::backend::renderer::utils::DamageSet<i32, Physical> {
-        self.0.damage_since(scale, commit)
+        return self.0.damage_since(scale, commit)
     }
 
     fn opaque_regions(&self, scale: Scale<f64>) -> OpaqueRegions<i32, Physical> {
-        self.0.opaque_regions(scale)
+        return self.0.opaque_regions(scale)
     }
 
     fn alpha(&self) -> f32 {
-        self.0.alpha()
+        return self.0.alpha()
     }
 
     fn kind(&self) -> Kind {
-        self.0.kind()
+        return self.0.kind()
     }
 }
 
@@ -167,11 +167,11 @@ impl RenderElement<GlesRenderer> for ClosingWindowRenderElement {
         opaque_regions: &[Rectangle<i32, Physical>],
         cache: Option<&UserDataMap>,
     ) -> Result<(), GlesError> {
-        RenderElement::<GlesRenderer>::draw(&self.0, frame, src, dst, damage, opaque_regions, cache)
+        return RenderElement::<GlesRenderer>::draw(&self.0, frame, src, dst, damage, opaque_regions, cache)
     }
 
     fn underlying_storage(&self, renderer: &mut GlesRenderer) -> Option<UnderlyingStorage<'_>> {
-        self.0.underlying_storage(renderer)
+        return self.0.underlying_storage(renderer)
     }
 }
 
@@ -226,7 +226,7 @@ impl<'a, 'b>
             >,
         > as smithay::backend::renderer::RendererSuper>::Error,
     > {
-        RenderElement::<GlesRenderer>::draw(
+        return RenderElement::<GlesRenderer>::draw(
             &self.0,
             frame.as_mut(),
             src,
@@ -253,6 +253,6 @@ impl<'a, 'b>
             >,
         >,
     ) -> Option<UnderlyingStorage<'_>> {
-        self.0.underlying_storage(renderer.as_mut())
+        return self.0.underlying_storage(renderer.as_mut())
     }
 }

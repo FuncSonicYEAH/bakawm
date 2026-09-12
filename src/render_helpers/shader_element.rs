@@ -56,7 +56,7 @@ struct ShaderProgramInternal {
 
 impl PartialEq for ShaderProgram {
     fn eq(&self, other: &Self) -> bool {
-        Rc::ptr_eq(&self.0, &other.0)
+        return Rc::ptr_eq(&self.0, &other.0)
     }
 }
 
@@ -81,7 +81,7 @@ unsafe fn compile_program(
     let alpha = c"u_alpha";
     let tint = c"u_tint";
 
-    Ok(ShaderProgram(Rc::new(ShaderProgramInner {
+    return Ok(ShaderProgram(Rc::new(ShaderProgramInner {
         normal: ShaderProgramInternal {
             program,
             uniform_matrix: unsafe { gl.GetUniformLocation(program, matrix.as_ptr()) },
@@ -97,7 +97,7 @@ unsafe fn compile_program(
                     let name =
                         CString::new(uniform.name.as_bytes()).expect("Interior null in name");
                     let location = unsafe { gl.GetUniformLocation(program, name.as_ptr()) };
-                    (
+                    return (
                         uniform.name.clone().into_owned(),
                         UniformDesc {
                             location,
@@ -111,7 +111,7 @@ unsafe fn compile_program(
                 .map(|name_| {
                     let name = CString::new(name_.as_bytes()).expect("Interior null in name");
                     let location = unsafe { gl.GetUniformLocation(program, name.as_ptr()) };
-                    (name_.to_string(), location)
+                    return (name_.to_string(), location)
                 })
                 .collect(),
         },
@@ -134,7 +134,7 @@ unsafe fn compile_program(
                     let name =
                         CString::new(uniform.name.as_bytes()).expect("Interior null in name");
                     let location = unsafe { gl.GetUniformLocation(debug_program, name.as_ptr()) };
-                    (
+                    return (
                         uniform.name.clone().into_owned(),
                         UniformDesc {
                             location,
@@ -148,7 +148,7 @@ unsafe fn compile_program(
                 .map(|name_| {
                     let name = CString::new(name_.as_bytes()).expect("Interior null in name");
                     let location = unsafe { gl.GetUniformLocation(debug_program, name.as_ptr()) };
-                    (name_.to_string(), location)
+                    return (name_.to_string(), location)
                 })
                 .collect(),
         },
@@ -163,13 +163,13 @@ impl ShaderProgram {
         additional_uniforms: &[UniformName<'_>],
         texture_uniforms: &[&str],
     ) -> Result<Self, GlesError> {
-        renderer.with_context(move |gl| unsafe {
-            compile_program(gl, src, additional_uniforms, texture_uniforms)
+        return renderer.with_context(move |gl| unsafe {
+            return compile_program(gl, src, additional_uniforms, texture_uniforms)
         })?
     }
 
     pub fn destroy(self, renderer: &mut GlesRenderer) -> Result<(), GlesError> {
-        renderer.with_context(move |gl| unsafe {
+        return renderer.with_context(move |gl| unsafe {
             gl.DeleteProgram(self.0.normal.program);
             gl.DeleteProgram(self.0.debug.program);
         })
@@ -188,7 +188,7 @@ impl ShaderRenderElement {
         textures: HashMap<String, GlesTexture>,
         kind: Kind,
     ) -> Self {
-        Self {
+        return Self {
             program,
             id: Id::new(),
             commit_counter: CommitCounter::default(),
@@ -203,7 +203,7 @@ impl ShaderRenderElement {
     }
 
     pub fn empty(program: ProgramType, kind: Kind) -> Self {
-        Self {
+        return Self {
             program,
             id: Id::new(),
             commit_counter: CommitCounter::default(),
@@ -241,45 +241,45 @@ impl ShaderRenderElement {
 
     pub fn with_location(mut self, location: Point<f64, Logical>) -> Self {
         self.area.loc = location;
-        self
+        return self
     }
 
     pub fn with_alpha(mut self, alpha: f32) -> Self {
         self.alpha = alpha;
-        self
+        return self
     }
 }
 
 impl Element for ShaderRenderElement {
     fn id(&self) -> &Id {
-        &self.id
+        return &self.id
     }
 
     fn current_commit(&self) -> CommitCounter {
-        self.commit_counter
+        return self.commit_counter
     }
 
     fn src(&self) -> Rectangle<f64, Buffer> {
-        Rectangle::from_size(Size::from((1., 1.)))
+        return Rectangle::from_size(Size::from((1., 1.)))
     }
 
     fn geometry(&self, scale: Scale<f64>) -> Rectangle<i32, Physical> {
-        self.area.to_physical_precise_round(scale)
+        return self.area.to_physical_precise_round(scale)
     }
 
     fn opaque_regions(&self, scale: Scale<f64>) -> OpaqueRegions<i32, Physical> {
-        self.opaque_regions
+        return self.opaque_regions
             .iter()
-            .map(|region| region.to_physical_precise_down(scale))
+            .map(|region| return region.to_physical_precise_down(scale))
             .collect()
     }
 
     fn alpha(&self) -> f32 {
-        self.alpha
+        return self.alpha
     }
 
     fn kind(&self) -> Kind {
-        self.kind
+        return self.kind
     }
 }
 
@@ -316,7 +316,7 @@ impl RenderElement<GlesRenderer> for ShaderRenderElement {
                     (dest_size.to_point() - rect_constrained_loc).to_size(),
                 );
                 let rect = Rectangle::new(rect_constrained_loc, rect_clamped_size);
-                [
+                return [
                     rect.loc.x as f32,
                     rect.loc.y as f32,
                     rect.size.w as f32,
@@ -334,8 +334,8 @@ impl RenderElement<GlesRenderer> for ShaderRenderElement {
                     (dest_size.to_point() - rect_constrained_loc).to_size(),
                 );
                 let rect = Rectangle::new(rect_constrained_loc, rect_clamped_size);
-                (0..6).flat_map(move |_| {
-                    [
+                return (0..6).flat_map(move |_| {
+                    return [
                         rect.loc.x as f32,
                         rect.loc.y as f32,
                         rect.size.w as f32,
@@ -418,7 +418,7 @@ impl RenderElement<GlesRenderer> for ShaderRenderElement {
                             .additional_uniforms
                             .get(&*uniform.name)
                             .ok_or_else(|| {
-                                GlesError::UnknownUniform(uniform.name.clone().into_owned())
+                                return GlesError::UnknownUniform(uniform.name.clone().into_owned())
                             })?;
                     uniform.value.set(gl, desc)?;
                 }
@@ -483,13 +483,13 @@ impl RenderElement<GlesRenderer> for ShaderRenderElement {
                 gl.DisableVertexAttribArray(program.attrib_vert_position as u32);
             }
 
-            Ok(())
+            return Ok(())
         })??;
 
-        Ok(())
+        return Ok(())
     }
 
     fn underlying_storage(&self, _renderer: &mut GlesRenderer) -> Option<UnderlyingStorage<'_>> {
-        None
+        return None
     }
 }

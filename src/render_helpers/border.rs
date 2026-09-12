@@ -58,12 +58,12 @@ impl BorderRenderElement {
             },
         };
         rv.update_inner();
-        rv
+        return rv
     }
 
     pub fn empty() -> Self {
         let inner = ShaderRenderElement::empty(ProgramType::Border, Kind::Unspecified);
-        Self {
+        return Self {
             inner,
             params: Parameters {
                 size: Default::default(),
@@ -150,11 +150,11 @@ impl BorderRenderElement {
 
     pub fn with_location(mut self, location: Point<f64, Logical>) -> Self {
         self.inner = self.inner.with_location(location);
-        self
+        return self
     }
 
     pub fn has_shader(renderer: &mut GlesRenderer) -> bool {
-        Shaders::get(renderer)
+        return Shaders::get(renderer)
             .program(ProgramType::Border)
             .is_some()
     }
@@ -162,29 +162,29 @@ impl BorderRenderElement {
 
 impl Default for BorderRenderElement {
     fn default() -> Self {
-        Self::empty()
+        return Self::empty()
     }
 }
 
 impl Element for BorderRenderElement {
     fn id(&self) -> &Id {
-        self.inner.id()
+        return self.inner.id()
     }
 
     fn current_commit(&self) -> CommitCounter {
-        self.inner.current_commit()
+        return self.inner.current_commit()
     }
 
     fn geometry(&self, scale: Scale<f64>) -> Rectangle<i32, Physical> {
-        self.inner.geometry(scale)
+        return self.inner.geometry(scale)
     }
 
     fn transform(&self) -> Transform {
-        self.inner.transform()
+        return self.inner.transform()
     }
 
     fn src(&self) -> Rectangle<f64, Buffer> {
-        self.inner.src()
+        return self.inner.src()
     }
 
     fn damage_since(
@@ -192,19 +192,19 @@ impl Element for BorderRenderElement {
         scale: Scale<f64>,
         commit: Option<CommitCounter>,
     ) -> DamageSet<i32, Physical> {
-        self.inner.damage_since(scale, commit)
+        return self.inner.damage_since(scale, commit)
     }
 
     fn opaque_regions(&self, scale: Scale<f64>) -> OpaqueRegions<i32, Physical> {
-        self.inner.opaque_regions(scale)
+        return self.inner.opaque_regions(scale)
     }
 
     fn alpha(&self) -> f32 {
-        self.inner.alpha()
+        return self.inner.alpha()
     }
 
     fn kind(&self) -> Kind {
-        self.inner.kind()
+        return self.inner.kind()
     }
 }
 
@@ -218,7 +218,7 @@ impl RenderElement<GlesRenderer> for BorderRenderElement {
         opaque_regions: &[Rectangle<i32, Physical>],
         cache: Option<&UserDataMap>,
     ) -> Result<(), GlesError> {
-        RenderElement::<GlesRenderer>::draw(
+        return RenderElement::<GlesRenderer>::draw(
             &self.inner,
             frame,
             src,
@@ -230,6 +230,6 @@ impl RenderElement<GlesRenderer> for BorderRenderElement {
     }
 
     fn underlying_storage(&self, renderer: &mut GlesRenderer) -> Option<UnderlyingStorage<'_>> {
-        self.inner.underlying_storage(renderer)
+        return self.inner.underlying_storage(renderer)
     }
 }

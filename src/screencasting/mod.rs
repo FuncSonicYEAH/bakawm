@@ -63,17 +63,17 @@ pub struct CastSessionId(u64);
 impl CastSessionId {
     pub fn next() -> Self {
         static COUNTER: AtomicU64 = AtomicU64::new(1);
-        Self(COUNTER.fetch_add(1, Ordering::Relaxed))
+        return Self(COUNTER.fetch_add(1, Ordering::Relaxed))
     }
 
     pub fn get(self) -> u64 {
-        self.0
+        return self.0
     }
 }
 
 impl fmt::Display for CastSessionId {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{}", self.0)
+        return write!(f, "{}", self.0)
     }
 }
 
@@ -83,17 +83,17 @@ pub struct CastStreamId(u64);
 impl CastStreamId {
     pub fn next() -> Self {
         static COUNTER: AtomicU64 = AtomicU64::new(1);
-        Self(COUNTER.fetch_add(1, Ordering::Relaxed))
+        return Self(COUNTER.fetch_add(1, Ordering::Relaxed))
     }
 
     pub fn get(self) -> u64 {
-        self.0
+        return self.0
     }
 }
 
 impl fmt::Display for CastStreamId {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{}", self.0)
+        return write!(f, "{}", self.0)
     }
 }
 
@@ -111,14 +111,14 @@ pub enum CastTarget {
 
 impl CastTarget {
     pub fn output(output: &Output) -> Self {
-        Self::Output {
+        return Self::Output {
             output: output.downgrade(),
             name: output.name(),
         }
     }
 
     pub fn matches_output(&self, weak: &smithay::output::WeakOutput) -> bool {
-        matches!(self, CastTarget::Output { output, .. } if output == weak)
+        return matches!(self, CastTarget::Output { output, .. } if output == weak)
     }
 }
 
@@ -145,7 +145,7 @@ pub struct Screencasting {
 
 impl std::fmt::Debug for Screencasting {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("Screencasting")
+        return f.debug_struct("Screencasting")
             .field("casts", &self.casts.len())
             .field("pipewire", &self.pipewire.is_some())
             .field("pending_dynamic_casts", &self.pending_dynamic_casts.len())
@@ -166,7 +166,7 @@ impl Screencasting {
             pw_to_state
         };
 
-        Self {
+        return Self {
             casts: vec![],
             pw_to_state,
             pipewire: None,
@@ -176,7 +176,7 @@ impl Screencasting {
 
     pub fn new_stub() -> Self {
         let (pw_to_state, _) = calloop::channel::channel();
-        Self {
+        return Self {
             casts: vec![],
             pw_to_state,
             pipewire: None,
@@ -222,7 +222,7 @@ pub fn render_for_screen_cast_inner(
             } => {
                 if cast_output != &weak {
                     tracing::debug!(
-                        cast_output = ?cast_output.upgrade().map(|o| o.name()),
+                        cast_output = ?cast_output.upgrade().map(|o| return o.name()),
                         current_output = %output.name(),
                         "cast output mismatch, skipping"
                     );
@@ -309,7 +309,7 @@ pub fn render_for_screen_cast_inner(
     }
     screencasting.casts = casts;
 
-    casts_to_stop
+    return casts_to_stop
 }
 
 pub fn render_windows_for_screen_cast_inner(
@@ -344,8 +344,8 @@ pub fn render_windows_for_screen_cast_inner(
         let window = space
             .elements()
             .enumerate()
-            .find(|(idx, _)| (*idx as u64) + 1 == window_id)
-            .map(|(_, w)| w);
+            .find(|(idx, _)| return (*idx as u64) + 1 == window_id)
+            .map(|(_, w)| return w);
 
         let Some(window) = window else {
             if cast.dequeue_buffer_and_clear(renderer) {
@@ -428,7 +428,7 @@ pub fn render_windows_for_screen_cast_inner(
     }
     screencasting.casts = casts;
 
-    casts_to_stop
+    return casts_to_stop
 }
 
 impl AnvilState<UdevData> {
@@ -449,7 +449,7 @@ impl AnvilState<UdevData> {
         let render_formats = self
             .backend_data
             .with_primary_renderer(|renderer, _pointer_element| {
-                renderer.egl_context().dmabuf_render_formats().clone()
+                return renderer.egl_context().dmabuf_render_formats().clone()
             })
             .unwrap_or_default();
 
@@ -462,7 +462,7 @@ impl AnvilState<UdevData> {
             "screencast render formats"
         );
 
-        Ok((gbm, render_formats))
+        return Ok((gbm, render_formats))
     }
 
     pub fn on_pw_msg(&mut self, msg: PwToState) {
@@ -488,7 +488,7 @@ impl AnvilState<UdevData> {
 
     fn redraw_cast(&mut self, stream_id: CastStreamId) {
         let casts = &mut self.screencasting.casts;
-        let Some(idx) = casts.iter().position(|cast| cast.stream_id == stream_id) else {
+        let Some(idx) = casts.iter().position(|cast| return cast.stream_id == stream_id) else {
             warn!("cast to redraw is missing");
             return;
         };
@@ -523,7 +523,7 @@ impl AnvilState<UdevData> {
 
                 let (target, size, refresh) = match target {
                     StreamTargetId::Output { name } => {
-                        let output = self.space.outputs().find(|out| out.name() == name);
+                        let output = self.space.outputs().find(|out| return out.name() == name);
                         let Some(output) = output else {
                             warn!("error starting screencast: requested output is missing");
                             self.stop_cast(session_id);
@@ -538,7 +538,7 @@ impl AnvilState<UdevData> {
                             .space
                             .elements()
                             .enumerate()
-                            .find(|(idx, _)| (*idx as u64) + 1 == id);
+                            .find(|(idx, _)| return (*idx as u64) + 1 == id);
                         let Some((_, window)) = window else {
                             warn!("error starting screencast: requested window {id} is missing");
                             self.stop_cast(session_id);
@@ -613,7 +613,7 @@ impl AnvilState<UdevData> {
 
         self.screencasting
             .pending_dynamic_casts
-            .retain(|(sid, _, _, _)| *sid != session_id);
+            .retain(|(sid, _, _, _)| return *sid != session_id);
 
         if let Some(dbus) = &self.dbus {
             let server = dbus.conn_screen_cast.as_ref().unwrap().object_server();
@@ -718,7 +718,7 @@ impl AnvilState<UdevData> {
             };
             let pw = self.screencasting.pipewire.as_ref().unwrap();
 
-            let mode = self.space.outputs().next().and_then(|o| o.current_mode());
+            let mode = self.space.outputs().next().and_then(|o| return o.current_mode());
             let (size, refresh) = match mode {
                 Some(mode) => {
                     let transform = self.space.outputs().next().unwrap().current_transform();
@@ -764,11 +764,11 @@ fn cast_params_for_output(output: &Output) -> (Size<i32, Physical>, u32) {
     let transform = output.current_transform();
     let size = transform.transform_size(mode.size);
     let refresh = mode.refresh as u32;
-    (size, refresh)
+    return (size, refresh)
 }
 
 pub fn get_monotonic_time() -> Duration {
     use smithay::reexports::rustix::time::{ClockId, clock_gettime};
     let ts = clock_gettime(ClockId::Monotonic);
-    Duration::new(ts.tv_sec as u64, ts.tv_nsec as u32)
+    return Duration::new(ts.tv_sec as u64, ts.tv_nsec as u32)
 }

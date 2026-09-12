@@ -67,7 +67,7 @@ pub struct WinitData {
 
 impl DmabufHandler for AnvilState<WinitData> {
     fn dmabuf_state(&mut self) -> &mut DmabufState {
-        &mut self.backend_data.dmabuf_state.0
+        return &mut self.backend_data.dmabuf_state.0
     }
 
     fn dmabuf_imported(
@@ -92,7 +92,7 @@ impl DmabufHandler for AnvilState<WinitData> {
 
 impl Backend for WinitData {
     fn seat_name(&self) -> String {
-        String::from("winit")
+        return String::from("winit")
     }
     fn reset_buffers(&mut self, _output: &Output) {
         self.full_redraw = 4;
@@ -107,8 +107,8 @@ impl Backend for WinitData {
     }
 
     fn with_primary_renderer<T>(&mut self, f: impl FnOnce(&mut GlesRenderer) -> T) -> Option<T> {
-        let mut renderer = self.backend.renderer();
-        Some(f(&mut renderer))
+        let renderer = self.backend.renderer();
+        return Some(f(renderer))
     }
 
     fn capture_screenshot(
@@ -145,13 +145,11 @@ impl Backend for WinitData {
         if output_geometry.to_f64().contains(pointer_location) {
             let cursor_hotspot = if let CursorImageStatus::Surface(surface) = cursor_status {
                 compositor::with_states(surface, |states| {
-                    states
+                    return states
                         .data_map
                         .get::<Mutex<CursorImageAttributes>>()
-                        .unwrap()
-                        .lock()
-                        .unwrap()
-                        .hotspot
+                        .map(|attrs| return attrs.lock().unwrap().hotspot)
+                        .unwrap_or_default()
                 })
             } else {
                 (0, 0).into()
@@ -241,7 +239,7 @@ impl Backend for WinitData {
             return None;
         };
 
-        Some(CapturedFrame {
+        return Some(CapturedFrame {
             pixels: bytes.to_vec(),
             width: size.w as u32,
             height: size.h as u32,
@@ -317,7 +315,7 @@ pub fn run_winit() {
     let mut fps_element = FpsElement::new(fps_texture);
 
     let render_node = EGLDevice::device_for_display(backend.renderer().egl_context().display())
-        .and_then(|device| device.try_get_render_node());
+        .and_then(|device| return device.try_get_render_node());
 
     let dmabuf_default_feedback = match render_node {
         Ok(Some(node)) => {
@@ -381,22 +379,22 @@ pub fn run_winit() {
         .shm_state
         .update_formats(state.backend_data.backend.renderer().shm_formats());
 
-    let output_config = state.config.outputs.iter().find(|o| o.name == OUTPUT_NAME);
-    let output_position = output_config.and_then(|o| o.position).unwrap_or((0, 0));
-    let output_scale = output_config.and_then(|o| o.scale);
+    let output_config = state.config.outputs.iter().find(|o| return o.name == OUTPUT_NAME);
+    let output_position = output_config.and_then(|o| return o.position).unwrap_or((0, 0));
+    let output_scale = output_config.and_then(|o| return o.scale);
     let output_transform =
         output_config
-            .and_then(|o| o.transform.as_deref())
+            .and_then(|o| return o.transform.as_deref())
             .and_then(|t| match t {
-                "normal" => Some(Transform::Normal),
-                "90" => Some(Transform::_90),
-                "180" => Some(Transform::_180),
-                "270" => Some(Transform::_270),
-                "flipped" => Some(Transform::Flipped),
-                "flipped-90" => Some(Transform::Flipped90),
-                "flipped-180" => Some(Transform::Flipped180),
-                "flipped-270" => Some(Transform::Flipped270),
-                _ => None,
+                "normal" => return Some(Transform::Normal),
+                "90" => return Some(Transform::_90),
+                "180" => return Some(Transform::_180),
+                "270" => return Some(Transform::_270),
+                "flipped" => return Some(Transform::Flipped),
+                "flipped-90" => return Some(Transform::Flipped90),
+                "flipped-180" => return Some(Transform::Flipped180),
+                "flipped-270" => return Some(Transform::Flipped270),
+                _ => return None,
             });
 
     if let Some(scale) = output_scale {
@@ -443,7 +441,9 @@ pub fn run_winit() {
         let status = winit.dispatch_new_events(|event| match event {
             WinitEvent::Resized { size, .. } => {
                 // We only have one output
-                let output = state.space.outputs().next().unwrap().clone();
+                let Some(output) = state.space.outputs().next().cloned() else {
+                    return;
+                };
                 state.space.map_output(&output, (0, 0));
                 let mode = Mode {
                     size,
@@ -468,7 +468,7 @@ pub fn run_winit() {
             let frame_target = now
                 + output
                     .current_mode()
-                    .map(|mode| Duration::from_secs_f64(1_000f64 / mode.refresh as f64))
+                    .map(|mode| return Duration::from_secs_f64(1_000f64 / mode.refresh as f64))
                     .unwrap_or_default();
             state.pre_repaint(&output, frame_target);
 
@@ -506,13 +506,11 @@ pub fn run_winit() {
             let cursor_hotspot =
                 if let CursorImageStatus::Surface(ref surface) = state.cursor_status {
                     compositor::with_states(surface, |states| {
-                        states
+                        return states
                             .data_map
                             .get::<Mutex<CursorImageAttributes>>()
-                            .unwrap()
-                            .lock()
-                            .unwrap()
-                            .hotspot
+                            .map(|attrs| return attrs.lock().unwrap().hotspot)
+                            .unwrap_or_default()
                     })
                 } else {
                     (0, 0).into()
@@ -533,12 +531,12 @@ pub fn run_winit() {
                 .window_handle()
                 .map(|handle| {
                     if let RawWindowHandle::Wayland(handle) = handle.as_raw() {
-                        handle.surface.as_ptr()
+                        return handle.surface.as_ptr();
                     } else {
-                        std::ptr::null_mut()
+                        return std::ptr::null_mut();
                     }
                 })
-                .unwrap_or_else(|_| std::ptr::null_mut());
+                .unwrap_or_else(|_| return std::ptr::null_mut());
             let render_res = backend.bind().and_then(|(renderer, mut fb)| {
                 #[cfg(feature = "debug")]
                 if let Some(renderdoc) = renderdoc.as_mut() {
@@ -583,7 +581,7 @@ pub fn run_winit() {
                 #[cfg(feature = "debug")]
                 elements.push(CustomRenderElements::Fps(fps_element.clone()));
 
-                render_output(
+                return render_output(
                     &output,
                     space,
                     &state.closing_windows,
@@ -596,19 +594,21 @@ pub fn run_winit() {
                     &state.config,
                 )
                 .map_err(|err| match err {
-                    OutputDamageTrackerError::Rendering(err) => err.into(),
-                    _ => unreachable!(),
+                    OutputDamageTrackerError::Rendering(err) => return err.into(),
+                    // The winit surface always has a mode set, so this cannot occur.
+                    err @ OutputDamageTrackerError::OutputNoMode(_) => {
+                        return SwapBuffersError::ContextLost(Box::new(err))
+                    }
                 })
             });
 
             match render_res {
                 Ok(render_output_result) => {
                     let has_rendered = render_output_result.damage.is_some();
-                    if let Some(damage) = render_output_result.damage {
-                        if let Err(err) = backend.submit(Some(damage)) {
+                    if let Some(damage) = render_output_result.damage
+                        && let Err(err) = backend.submit(Some(damage)) {
                             warn!("Failed to submit buffer: {}", err);
                         }
-                    }
 
                     #[cfg(feature = "debug")]
                     if let Some(renderdoc) = renderdoc.as_mut() {
@@ -619,12 +619,12 @@ pub fn run_winit() {
                                 .window_handle()
                                 .map(|handle| {
                                     if let RawWindowHandle::Wayland(handle) = handle.as_raw() {
-                                        handle.surface.as_ptr()
+                                        return handle.surface.as_ptr();
                                     } else {
-                                        std::ptr::null_mut()
+                                        return std::ptr::null_mut();
                                     }
                                 })
-                                .unwrap_or_else(|_| std::ptr::null_mut()),
+                                .unwrap_or_else(|_| return std::ptr::null_mut()),
                         );
                     }
 
@@ -653,7 +653,7 @@ pub fn run_winit() {
                             output
                                 .current_mode()
                                 .map(|mode| {
-                                    Refresh::fixed(Duration::from_secs_f64(
+                                    return Refresh::fixed(Duration::from_secs_f64(
                                         1_000f64 / mode.refresh as f64,
                                     ))
                                 })
@@ -681,12 +681,12 @@ pub fn run_winit() {
                                 .window_handle()
                                 .map(|handle| {
                                     if let RawWindowHandle::Wayland(handle) = handle.as_raw() {
-                                        handle.surface.as_ptr()
+                                        return handle.surface.as_ptr();
                                     } else {
-                                        std::ptr::null_mut()
+                                        return std::ptr::null_mut();
                                     }
                                 })
-                                .unwrap_or_else(|_| std::ptr::null_mut()),
+                                .unwrap_or_else(|_| return std::ptr::null_mut()),
                         );
                     }
 

@@ -98,7 +98,7 @@ impl DisplayConfig {
                         mode_properties
                             .insert(String::from("is-current"), OwnedValue::from(is_current));
 
-                        Mode {
+                        return Mode {
                             id: format!("{width}x{height}@{refresh_rate:.3}"),
                             width,
                             height,
@@ -145,11 +145,11 @@ impl DisplayConfig {
             });
         }
 
-        monitors.sort_unstable_by(|a, b| a.names.0.cmp(&b.names.0));
-        logical_monitors.sort_unstable_by(|a, b| a.monitors[0].0.cmp(&b.monitors[0].0));
+        monitors.sort_unstable_by(|a, b| return a.names.0.cmp(&b.names.0));
+        logical_monitors.sort_unstable_by(|a, b| return a.monitors[0].0.cmp(&b.monitors[0].0));
 
         let properties = HashMap::from([(String::from("layout-mode"), OwnedValue::from(1u32))]);
-        Ok((0, monitors, logical_monitors, properties))
+        return Ok((0, monitors, logical_monitors, properties))
     }
 
     async fn apply_monitors_config(
@@ -163,7 +163,7 @@ impl DisplayConfig {
             return Ok(());
         }
 
-        Err(fdo::Error::Failed(
+        return Err(fdo::Error::Failed(
             "Applying monitor configuration is not supported".to_owned(),
         ))
     }
@@ -173,27 +173,27 @@ impl DisplayConfig {
 
     #[zbus(property)]
     fn power_save_mode(&self) -> i32 {
-        -1
+        return -1
     }
 
     #[zbus(property)]
     fn set_power_save_mode(&self, _mode: i32) -> zbus::Result<()> {
-        Err(zbus::Error::Unsupported)
+        return Err(zbus::Error::Unsupported)
     }
 
     #[zbus(property)]
     fn panel_orientation_managed(&self) -> bool {
-        false
+        return false
     }
 
     #[zbus(property)]
     fn apply_monitors_config_allowed(&self) -> bool {
-        true
+        return true
     }
 
     #[zbus(property)]
     fn night_light_supported(&self) -> bool {
-        false
+        return false
     }
 
     async fn change_backlight(
@@ -202,7 +202,7 @@ impl DisplayConfig {
         _connector: &str,
         _value: i32,
     ) -> fdo::Result<i32> {
-        Err(fdo::Error::Failed(
+        return Err(fdo::Error::Failed(
             "Changing backlight is not supported".to_owned(),
         ))
     }
@@ -212,7 +212,7 @@ impl DisplayConfig {
         _serial: u32,
         _connector: &str,
     ) -> fdo::Result<(i32, Vec<u16>, Vec<u16>, Vec<u16>)> {
-        Err(fdo::Error::Failed(
+        return Err(fdo::Error::Failed(
             "Getting CRTC gamma is not supported".to_owned(),
         ))
     }
@@ -225,7 +225,7 @@ impl DisplayConfig {
         _green: Vec<u16>,
         _blue: Vec<u16>,
     ) -> fdo::Result<()> {
-        Err(fdo::Error::Failed(
+        return Err(fdo::Error::Failed(
             "Setting CRTC gamma is not supported".to_owned(),
         ))
     }
@@ -233,7 +233,7 @@ impl DisplayConfig {
 
 impl DisplayConfig {
     pub fn new(ipc_outputs: Arc<Mutex<IpcOutputMap>>) -> Self {
-        Self { ipc_outputs }
+        return Self { ipc_outputs }
     }
 
     pub fn emit_monitors_changed(conn: &zbus::blocking::Connection) {
@@ -267,13 +267,13 @@ impl Start for DisplayConfig {
             .at("/org/gnome/Mutter/DisplayConfig", self)?;
         conn.request_name_with_flags("org.gnome.Mutter.DisplayConfig", flags)?;
 
-        Ok(conn)
+        return Ok(conn)
     }
 }
 
 fn is_laptop_panel(connector: &str) -> bool {
     let prefix = connector.split('-').next().unwrap_or("");
-    matches!(prefix, "eDP" | "LVDS")
+    return matches!(prefix, "eDP" | "LVDS")
 }
 
 fn make_display_name(output: &IpcOutput, is_laptop_panel: bool) -> String {
@@ -284,9 +284,9 @@ fn make_display_name(output: &IpcOutput, is_laptop_panel: bool) -> String {
     let make = &output.make;
     let model = &output.model;
     if model != "Unknown" {
-        format!("{make} {model}")
+        return format!("{make} {model}")
     } else {
-        make.clone()
+        return make.clone()
     }
 }
 
@@ -300,5 +300,5 @@ fn supported_scales(width: i32, height: i32) -> Vec<f64> {
         scales.push(3.0);
     }
 
-    scales
+    return scales
 }

@@ -5,7 +5,7 @@ macro_rules! bakawm_render_elements {
 
         $(impl<R: smithay::backend::renderer::Renderer> From<$type> for $name<R> {
             fn from(x: $type) -> Self {
-                Self::$variant(x)
+                return Self::$variant(x);
             }
         })+
     };
@@ -15,7 +15,7 @@ macro_rules! bakawm_render_elements {
 
         $(impl From<$type> for $name {
             fn from(x: $type) -> Self {
-                Self::$variant(x)
+                return Self::$variant(x);
             }
         })+
     };
@@ -30,31 +30,31 @@ macro_rules! bakawm_render_elements {
         impl$(<$R>)? smithay::backend::renderer::element::Element for $name$(<$R>)? {
             fn id(&self) -> &smithay::backend::renderer::element::Id {
                 match self {
-                    $($name::$variant(elem) => elem.id()),+
+                    $($name::$variant(elem) => return elem.id()),+
                 }
             }
 
             fn current_commit(&self) -> smithay::backend::renderer::utils::CommitCounter {
                 match self {
-                    $($name::$variant(elem) => elem.current_commit()),+
+                    $($name::$variant(elem) => return elem.current_commit()),+
                 }
             }
 
             fn geometry(&self, scale: smithay::utils::Scale<f64>) -> smithay::utils::Rectangle<i32, smithay::utils::Physical> {
                 match self {
-                    $($name::$variant(elem) => elem.geometry(scale)),+
+                    $($name::$variant(elem) => return elem.geometry(scale)),+
                 }
             }
 
             fn transform(&self) -> smithay::utils::Transform {
                 match self {
-                    $($name::$variant(elem) => elem.transform()),+
+                    $($name::$variant(elem) => return elem.transform()),+
                 }
             }
 
             fn src(&self) -> smithay::utils::Rectangle<f64, smithay::utils::Buffer> {
                 match self {
-                    $($name::$variant(elem) => elem.src()),+
+                    $($name::$variant(elem) => return elem.src()),+
                 }
             }
 
@@ -64,31 +64,31 @@ macro_rules! bakawm_render_elements {
                 commit: Option<smithay::backend::renderer::utils::CommitCounter>,
             ) -> smithay::backend::renderer::utils::DamageSet<i32, smithay::utils::Physical> {
                 match self {
-                    $($name::$variant(elem) => elem.damage_since(scale, commit)),+
+                    $($name::$variant(elem) => return elem.damage_since(scale, commit)),+
                 }
             }
 
             fn opaque_regions(&self, scale: smithay::utils::Scale<f64>) -> smithay::backend::renderer::utils::OpaqueRegions<i32, smithay::utils::Physical> {
                 match self {
-                    $($name::$variant(elem) => elem.opaque_regions(scale)),+
+                    $($name::$variant(elem) => return elem.opaque_regions(scale)),+
                 }
             }
 
             fn alpha(&self) -> f32 {
                 match self {
-                    $($name::$variant(elem) => elem.alpha()),+
+                    $($name::$variant(elem) => return elem.alpha()),+
                 }
             }
 
             fn kind(&self) -> smithay::backend::renderer::element::Kind {
                 match self {
-                    $($name::$variant(elem) => elem.kind()),+
+                    $($name::$variant(elem) => return elem.kind()),+
                 }
             }
 
             fn is_framebuffer_effect(&self) -> bool {
                 match self {
-                    $($name::$variant(elem) => elem.is_framebuffer_effect()),+
+                    $($name::$variant(elem) => return elem.is_framebuffer_effect()),+
                 }
             }
         }
@@ -107,14 +107,14 @@ macro_rules! bakawm_render_elements {
             ) -> Result<(), smithay::backend::renderer::gles::GlesError> {
                 match self {
                     $($name::$variant(elem) => {
-                        smithay::backend::renderer::element::RenderElement::<smithay::backend::renderer::gles::GlesRenderer>::draw(elem, frame, src, dst, damage, opaque_regions, cache)
+                        return smithay::backend::renderer::element::RenderElement::<smithay::backend::renderer::gles::GlesRenderer>::draw(elem, frame, src, dst, damage, opaque_regions, cache);
                     })+
                 }
             }
 
             fn underlying_storage(&self, renderer: &mut smithay::backend::renderer::gles::GlesRenderer) -> Option<smithay::backend::renderer::element::UnderlyingStorage<'_>> {
                 match self {
-                    $($name::$variant(elem) => elem.underlying_storage(renderer)),+
+                    $($name::$variant(elem) => return elem.underlying_storage(renderer)),+
                 }
             }
 
@@ -127,7 +127,7 @@ macro_rules! bakawm_render_elements {
             ) -> Result<(), smithay::backend::renderer::gles::GlesError> {
                 match self {
                     $($name::$variant(elem) => {
-                        smithay::backend::renderer::element::RenderElement::<smithay::backend::renderer::gles::GlesRenderer>::capture_framebuffer(elem, frame, src, dst, cache)
+                        return smithay::backend::renderer::element::RenderElement::<smithay::backend::renderer::gles::GlesRenderer>::capture_framebuffer(elem, frame, src, dst, cache);
                     })+
                 }
             }

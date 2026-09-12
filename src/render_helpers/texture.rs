@@ -44,7 +44,7 @@ impl<T: Texture> TextureBuffer<T> {
         transform: Transform,
         opaque_regions: Vec<Rectangle<i32, Buffer>>,
     ) -> Self {
-        TextureBuffer {
+        return TextureBuffer {
             id: Id::new(),
             commit_counter: CommitCounter::default(),
             renderer_context_id: renderer.context_id(),
@@ -56,21 +56,21 @@ impl<T: Texture> TextureBuffer<T> {
     }
 
     pub fn texture(&self) -> &T {
-        &self.texture
+        return &self.texture
     }
 
     pub fn texture_scale(&self) -> Scale<f64> {
-        self.scale
+        return self.scale
     }
 
     pub fn texture_transform(&self) -> Transform {
-        self.transform
+        return self.transform
     }
 }
 
 impl<T: Texture> TextureBuffer<T> {
     pub fn logical_size(&self) -> Size<f64, Logical> {
-        self.texture
+        return self.texture
             .size()
             .to_f64()
             .to_logical(self.scale, self.transform)
@@ -79,7 +79,7 @@ impl<T: Texture> TextureBuffer<T> {
 
 impl TextureBuffer<GlesTexture> {
     pub fn is_texture_reference_unique(&mut self) -> bool {
-        self.texture.is_unique_reference()
+        return self.texture.is_unique_reference()
     }
 }
 
@@ -92,7 +92,7 @@ impl<T: Texture> TextureRenderElement<T> {
         size: Option<Size<f64, Logical>>,
         kind: Kind,
     ) -> Self {
-        TextureRenderElement {
+        return TextureRenderElement {
             buffer,
             location: location.into(),
             alpha,
@@ -103,58 +103,58 @@ impl<T: Texture> TextureRenderElement<T> {
     }
 
     pub fn buffer(&self) -> &TextureBuffer<T> {
-        &self.buffer
+        return &self.buffer
     }
 }
 
 impl<T: Texture> TextureRenderElement<T> {
     pub fn logical_size(&self) -> Size<f64, Logical> {
-        self.size
-            .or_else(|| self.src.map(|src| src.size))
-            .unwrap_or_else(|| self.buffer.logical_size())
+        return self.size
+            .or_else(|| return self.src.map(|src| return src.size))
+            .unwrap_or_else(|| return self.buffer.logical_size())
     }
 
     pub fn logical_src(&self) -> Rectangle<f64, Logical> {
-        self.src
-            .unwrap_or_else(|| Rectangle::from_size(self.logical_size()))
+        return self.src
+            .unwrap_or_else(|| return Rectangle::from_size(self.logical_size()))
     }
 }
 
 impl<T: Texture> Element for TextureRenderElement<T> {
     fn id(&self) -> &Id {
-        &self.buffer.id
+        return &self.buffer.id
     }
 
     fn current_commit(&self) -> CommitCounter {
-        self.buffer.commit_counter
+        return self.buffer.commit_counter
     }
 
     fn geometry(&self, scale: Scale<f64>) -> Rectangle<i32, Physical> {
         let logical_geo = Rectangle::new(self.location, self.logical_size());
-        logical_geo.to_physical_precise_round(scale)
+        return logical_geo.to_physical_precise_round(scale)
     }
 
     fn transform(&self) -> Transform {
-        self.buffer.transform
+        return self.buffer.transform
     }
 
     fn src(&self) -> Rectangle<f64, Buffer> {
-        self.src
+        return self.src
             .map(|src| {
-                src.to_buffer(
+                return src.to_buffer(
                     self.buffer.scale,
                     self.buffer.transform,
                     &self.buffer.logical_size(),
                 )
             })
-            .unwrap_or_else(|| Rectangle::from_size(self.buffer.texture.size()).to_f64())
+            .unwrap_or_else(|| return Rectangle::from_size(self.buffer.texture.size()).to_f64())
     }
 
     fn opaque_regions(&self, scale: Scale<f64>) -> OpaqueRegions<i32, Physical> {
         let texture_size = self.buffer.texture.size().to_f64();
         let src = self.src();
 
-        self.buffer
+        return self.buffer
             .opaque_regions
             .iter()
             .filter_map(|region| {
@@ -165,17 +165,17 @@ impl<T: Texture> Element for TextureRenderElement<T> {
 
                 let logical =
                     region.to_logical(self.buffer.scale, self.buffer.transform, &src.size);
-                Some(logical.to_physical_precise_down(scale))
+                return Some(logical.to_physical_precise_down(scale))
             })
             .collect()
     }
 
     fn alpha(&self) -> f32 {
-        self.alpha
+        return self.alpha
     }
 
     fn kind(&self) -> Kind {
-        self.kind
+        return self.kind
     }
 }
 
@@ -198,7 +198,7 @@ where
             return Ok(());
         }
 
-        frame.render_texture_from_to(
+        return frame.render_texture_from_to(
             &self.buffer.texture,
             src,
             dest,
@@ -210,6 +210,6 @@ where
     }
 
     fn underlying_storage(&self, _renderer: &mut R) -> Option<UnderlyingStorage<'_>> {
-        None
+        return None
     }
 }

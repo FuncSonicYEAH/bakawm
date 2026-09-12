@@ -29,7 +29,7 @@ impl FramebufferEffectElement {
         scale: f64,
         blur_options: Option<BlurOptions>,
     ) -> Self {
-        Self {
+        return Self {
             id: Id::new(),
             commit: CommitCounter::default(),
             geometry,
@@ -52,7 +52,7 @@ struct Inner {
 
 impl Inner {
     fn new(renderer: &mut GlesRenderer) -> Self {
-        Inner {
+        return Inner {
             framebuffer: None,
             blur: Blur::new(renderer),
             intermediate: None,
@@ -62,24 +62,24 @@ impl Inner {
 
 impl Element for FramebufferEffectElement {
     fn id(&self) -> &Id {
-        &self.id
+        return &self.id
     }
 
     fn current_commit(&self) -> CommitCounter {
-        self.commit
+        return self.commit
     }
 
     fn src(&self) -> Rectangle<f64, Buffer> {
         let size = self.geometry.size.to_buffer(1., Transform::Normal);
-        Rectangle::from_size(size)
+        return Rectangle::from_size(size)
     }
 
     fn geometry(&self, scale: Scale<f64>) -> Rectangle<i32, Physical> {
-        self.geometry.to_physical_precise_round(scale)
+        return self.geometry.to_physical_precise_round(scale)
     }
 
     fn is_framebuffer_effect(&self) -> bool {
-        true
+        return true
     }
 }
 
@@ -92,7 +92,7 @@ impl RenderElement<GlesRenderer> for FramebufferEffectElement {
         cache: &UserDataMap,
     ) -> Result<(), GlesError> {
         let span_loc = gpu_span_location!("FramebufferEffectElement::capture_framebuffer");
-        frame.with_gpu_span(span_loc, |frame| {
+        return frame.with_gpu_span(span_loc, |frame| {
             let output_rect = Rectangle::from_size(frame.output_size());
             let transform = frame.transformation();
 
@@ -107,7 +107,7 @@ impl RenderElement<GlesRenderer> for FramebufferEffectElement {
             let mut guard = frame.renderer();
 
             let inner = cache
-                .get_or_insert::<RefCell<Inner>, _>(|| RefCell::new(Inner::new(guard.as_mut())));
+                .get_or_insert::<RefCell<Inner>, _>(|| return RefCell::new(Inner::new(guard.as_mut())));
             let mut inner = inner.borrow_mut();
             let inner = &mut *inner;
 
@@ -135,7 +135,7 @@ impl RenderElement<GlesRenderer> for FramebufferEffectElement {
             if inner
                 .framebuffer
                 .as_ref()
-                .is_some_and(|fb| fb.size() != size)
+                .is_some_and(|fb| return fb.size() != size)
             {
                 inner.framebuffer = None;
             }
@@ -152,7 +152,7 @@ impl RenderElement<GlesRenderer> for FramebufferEffectElement {
             if let Some((b, options)) = &mut blur {
                 let renderer = guard.as_mut();
                 if let Err(err) = b.prepare_textures(
-                    |fourcc, size| renderer.create_buffer(fourcc, size),
+                    |fourcc, size| return renderer.create_buffer(fourcc, size),
                     framebuffer,
                     *options,
                 ) {
@@ -204,9 +204,9 @@ impl RenderElement<GlesRenderer> for FramebufferEffectElement {
                 gl.DeleteFramebuffers(1, &mut fbo as *mut _);
 
                 if gl.GetError() != ffi::NO_ERROR {
-                    Err(GlesError::BlitError)
+                    return Err(GlesError::BlitError)
                 } else {
-                    Ok(())
+                    return Ok(())
                 }
             })??;
 
@@ -227,7 +227,7 @@ impl RenderElement<GlesRenderer> for FramebufferEffectElement {
                 }
             }
 
-            Ok(())
+            return Ok(())
         })
     }
 
@@ -269,11 +269,10 @@ impl RenderElement<GlesRenderer> for FramebufferEffectElement {
             damage
                 .iter()
                 .filter_map(|d| {
-                    if let Some(mut crop) = d.intersection(r) {
+                    {
+                        let mut crop = d.intersection(r)?;
                         crop.loc -= clamp_offset;
-                        Some(crop)
-                    } else {
-                        None
+                        return Some(crop)
                     }
                 })
                 .collect()
@@ -285,7 +284,7 @@ impl RenderElement<GlesRenderer> for FramebufferEffectElement {
             return Ok(());
         }
 
-        frame.render_texture_from_to(
+        return frame.render_texture_from_to(
             texture,
             Rectangle::from_size(texture.size().to_f64()),
             clamped_dst,

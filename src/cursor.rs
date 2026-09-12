@@ -15,19 +15,19 @@ pub struct Cursor {
 
 impl Cursor {
     pub fn load() -> Cursor {
-        Cursor::load_with_config(None, None)
+        return Cursor::load_with_config(None, None)
     }
 
     pub fn load_with_config(theme_override: Option<&str>, size_override: Option<u32>) -> Cursor {
         let name = theme_override
-            .map(|s| s.to_owned())
-            .or_else(|| std::env::var("XCURSOR_THEME").ok())
-            .unwrap_or_else(|| "default".into());
+            .map(|s| return s.to_owned())
+            .or_else(|| return std::env::var("XCURSOR_THEME").ok())
+            .unwrap_or_else(|| return "default".into());
         let size = size_override
             .or_else(|| {
-                std::env::var("XCURSOR_SIZE")
+                return std::env::var("XCURSOR_SIZE")
                     .ok()
-                    .and_then(|s| s.parse().ok())
+                    .and_then(|s| return s.parse().ok())
             })
             .unwrap_or(24);
 
@@ -35,7 +35,7 @@ impl Cursor {
         let icons = load_icon(&theme)
             .map_err(|err| warn!("Unable to load xcursor: {}, using fallback cursor", err))
             .unwrap_or_else(|_| {
-                vec![Image {
+                return vec![Image {
                     size: 32,
                     width: 64,
                     height: 64,
@@ -47,12 +47,12 @@ impl Cursor {
                 }]
             });
 
-        Cursor { icons, size }
+        return Cursor { icons, size }
     }
 
     pub fn get_image(&self, scale: u32, time: Duration) -> Image {
         let size = self.size * scale;
-        frame(time.as_millis() as u32, size, &self.icons)
+        return frame(time.as_millis() as u32, size, &self.icons)
     }
 }
 
@@ -60,16 +60,16 @@ fn nearest_images(size: u32, images: &[Image]) -> impl Iterator<Item = &Image> {
     // Follow the nominal size of the cursor to choose the nearest
     let nearest_image = images
         .iter()
-        .min_by_key(|image| (size as i32 - image.size as i32).abs())
+        .min_by_key(|image| return (size as i32 - image.size as i32).abs())
         .unwrap();
 
-    images.iter().filter(move |image| {
-        image.width == nearest_image.width && image.height == nearest_image.height
+    return images.iter().filter(move |image| {
+        return image.width == nearest_image.width && image.height == nearest_image.height
     })
 }
 
 fn frame(mut millis: u32, size: u32, images: &[Image]) -> Image {
-    let total = nearest_images(size, images).fold(0, |acc, image| acc + image.delay);
+    let total = nearest_images(size, images).fold(0, |acc, image| return acc + image.delay);
     if total == 0 {
         return nearest_images(size, images).next().unwrap().clone();
     }
@@ -100,5 +100,5 @@ fn load_icon(theme: &CursorTheme) -> Result<Vec<Image>, Error> {
     let mut cursor_file = std::fs::File::open(icon_path)?;
     let mut cursor_data = Vec::new();
     cursor_file.read_to_end(&mut cursor_data)?;
-    parse_xcursor(&cursor_data).ok_or(Error::Parse)
+    return parse_xcursor(&cursor_data).ok_or(Error::Parse)
 }

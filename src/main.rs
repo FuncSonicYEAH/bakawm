@@ -1,3 +1,7 @@
+// Explicit returns are mandated project-wide; needless_return contradicts it.
+#![warn(clippy::implicit_return)]
+#![allow(clippy::needless_return)]
+
 use std::env;
 use std::sync::atomic::{AtomicBool, Ordering};
 
@@ -60,21 +64,18 @@ fn setup_session() {
         env::set_var("XDG_SESSION_TYPE", "wayland");
     }
 
-    if env::var_os("DISPLAY").is_none() && env::var_os("WAYLAND_DISPLAY").is_none() {
-        if let Ok(output) = std::process::Command::new("dbus-update-activation-environment")
+    if env::var_os("DISPLAY").is_none() && env::var_os("WAYLAND_DISPLAY").is_none()
+        && let Ok(output) = std::process::Command::new("dbus-update-activation-environment")
             .arg("--all")
             .output()
-        {
-            if !output.status.success() {
+            && !output.status.success() {
                 tracing::warn!("failed to update D-Bus activation environment");
             }
-        }
-    }
 
     #[cfg(feature = "systemd")]
     {
-        if IS_SYSTEMD_SERVICE.load(Ordering::Relaxed) {
-            if let Ok(output) = std::process::Command::new("systemctl")
+        if IS_SYSTEMD_SERVICE.load(Ordering::Relaxed)
+            && let Ok(output) = std::process::Command::new("systemctl")
                 .args(["--user", "import-environment"])
                 .args([
                     "WAYLAND_DISPLAY",
@@ -83,12 +84,9 @@ fn setup_session() {
                     "XDG_CURRENT_DESKTOP",
                 ])
                 .output()
-            {
-                if !output.status.success() {
+                && !output.status.success() {
                     tracing::warn!("failed to import environment into systemd user manager");
                 }
-            }
-        }
     }
 }
 
@@ -150,11 +148,11 @@ fn main() {
         setup_session();
     }
 
-    let backend_arg = args.iter().position(|a| a.starts_with("--")).and_then(|i| {
+    let backend_arg = args.iter().position(|a| return a.starts_with("--")).and_then(|i| {
         let arg = &args[i];
         match arg.as_str() {
-            "--session" | "--version" | "--help" | "-h" => None,
-            _ => Some(arg.clone()),
+            "--session" | "--version" | "--help" | "-h" => return None,
+            _ => return Some(arg.clone()),
         }
     });
 
@@ -198,7 +196,6 @@ fn main() {
                 {
                     tracing::info!("Auto-detecting: starting as nested window using winit");
                     bakawm::winit::run_winit();
-                    return;
                 }
             } else {
                 #[allow(clippy::disallowed_macros)]

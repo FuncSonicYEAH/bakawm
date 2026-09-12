@@ -41,26 +41,35 @@ impl OldGeometry {
     }
 
     pub fn restore(&self) -> Option<Rectangle<i32, Logical>> {
-        self.0.borrow_mut().take()
+        return self.0.borrow_mut().take()
     }
 }
 
 impl<BackendData: Backend> XWaylandShellHandler for AnvilState<BackendData> {
     fn xwayland_shell_state(&mut self) -> &mut XWaylandShellState {
-        &mut self.xwayland_shell_state
+        return &mut self.xwayland_shell_state
     }
 }
 
 impl<BackendData: Backend> XwmHandler for AnvilState<BackendData> {
     fn xwm_state(&mut self, _xwm: XwmId) -> &mut X11Wm {
-        self.xwm.as_mut().unwrap()
+        // Only called while the xwm is alive (smithay drops the handler on
+        // disconnect), but stay defensive instead of panicking.
+        return self
+            .xwm
+            .as_mut()
+            .expect("xwm_state called after XWayland disconnect")
     }
 
     fn new_window(&mut self, _xwm: XwmId, _window: X11Surface) {}
     fn new_override_redirect_window(&mut self, _xwm: XwmId, _window: X11Surface) {}
 
     fn map_window_request(&mut self, _xwm: XwmId, window: X11Surface) {
-        window.set_mapped(true).unwrap();
+        if let Err(err) = window.set_mapped(true) {
+            // The window is likely already gone; nothing to map.
+            trace!(?err, "map_window_request: failed to map window");
+            return;
+        }
         let window = WindowElement(Window::new_x11_window(window));
         place_new_window(
             &mut self.space,
@@ -68,11 +77,13 @@ impl<BackendData: Backend> XwmHandler for AnvilState<BackendData> {
             &window,
             true,
         );
-        let bbox = self.space.element_bbox(&window).unwrap();
-        let Some(xsurface) = window.0.x11_surface() else {
-            unreachable!()
+        let Some(bbox) = self.space.element_bbox(&window) else {
+            return;
         };
-        xsurface.configure(Some(bbox)).unwrap();
+        let Some(xsurface) = window.0.x11_surface() else {
+            return;
+        };
+        let _ = xsurface.configure(Some(bbox));
         window.set_ssd(!xsurface.is_decorated());
 
         // Apply window config (including window-rule overrides)
@@ -83,7 +94,7 @@ impl<BackendData: Backend> XwmHandler for AnvilState<BackendData> {
             .space
             .output_under(self.pointer.current_location())
             .next()
-            .or_else(|| self.space.outputs().next())
+            .or_else(|| return self.space.outputs().next())
             .cloned();
         if let Some(output) = output {
             window.decoration_state().workspace = self.active_workspace(&output);
@@ -117,8 +128,10 @@ impl<BackendData: Backend> XwmHandler for AnvilState<BackendData> {
             // The actual unmap/close is deferred until after the snapshot is captured.
             self.queue_close_animation(&elem);
         }
-        if !window.is_override_redirect() {
-            window.set_mapped(false).unwrap();
+        if !window.is_override_redirect()
+            && let Err(err) = window.set_mapped(false)
+        {
+            trace!(?err, "unmapped_window: failed to unmap window");
         }
     }
 
@@ -177,13 +190,15 @@ impl<BackendData: Backend> XwmHandler for AnvilState<BackendData> {
             return;
         };
 
-        window.set_maximized(false).unwrap();
+        window.set_maximized(false).unwrap_or_else(|err| {
+            trace!(?err, "unmaximize_request: failed to unset maximized");
+        });
         if let Some(old_geo) = window
             .user_data()
             .get::<OldGeometry>()
-            .and_then(|data| data.restore())
+            .and_then(|data| return data.restore())
         {
-            window.configure(old_geo).unwrap();
+            let _ = window.configure(old_geo);
             self.space.relocate_element(&elem, old_geo.loc);
         }
     }
@@ -204,7 +219,9 @@ impl<BackendData: Backend> XwmHandler for AnvilState<BackendData> {
         edges: X11ResizeEdge,
     ) {
         // luckily anvil only supports one seat anyway...
-        let start_data = self.pointer.grab_start_data().unwrap();
+        let Some(start_data) = self.pointer.grab_start_data() else {
+            return;
+        };
 
         let Some(element) = self
             .space
@@ -215,21 +232,22 @@ impl<BackendData: Backend> XwmHandler for AnvilState<BackendData> {
         };
 
         let geometry = element.geometry();
-        let loc = self.space.element_location(element).unwrap();
+        let Some(loc) = self.space.element_location(element) else {
+            return;
+        };
         let (initial_window_location, initial_window_size) = (loc, geometry.size);
 
-        with_states(&element.wl_surface().unwrap(), move |states| {
-            states
-                .data_map
-                .get::<RefCell<SurfaceData>>()
-                .unwrap()
-                .borrow_mut()
-                .resize_state = ResizeState::Resizing(ResizeData {
-                edges: edges.into(),
-                initial_window_location,
-                initial_window_size,
+        if let Some(surface) = element.wl_surface().as_deref() {
+            with_states(surface, move |states| {
+                if let Some(data) = states.data_map.get::<RefCell<SurfaceData>>() {
+                    data.borrow_mut().resize_state = ResizeState::Resizing(ResizeData {
+                        edges: edges.into(),
+                        initial_window_location,
+                        initial_window_size,
+                    });
+                }
             });
-        });
+        }
 
         let grab = PointerResizeSurfaceGrab {
             start_data,
@@ -251,15 +269,13 @@ impl<BackendData: Backend> XwmHandler for AnvilState<BackendData> {
     fn allow_selection_access(&mut self, xwm: XwmId, _selection: SelectionTarget) -> bool {
         if let Some(keyboard) = self.seat.get_keyboard() {
             // check that an X11 window is focused
-            if let Some(KeyboardFocusTarget::Window(w)) = keyboard.current_focus() {
-                if let Some(surface) = w.x11_surface() {
-                    if surface.xwm_id().unwrap() == xwm {
+            if let Some(KeyboardFocusTarget::Window(w)) = keyboard.current_focus()
+                && let Some(surface) = w.x11_surface()
+                    && surface.xwm_id().is_some_and(|id| return id == xwm) {
                         return true;
                     }
-                }
-            }
         }
-        false
+        return false
     }
 
     fn send_selection(
@@ -333,18 +349,24 @@ impl<BackendData: Backend> AnvilState<BackendData> {
             return;
         };
 
-        let old_geo = self.space.element_bbox(&elem).unwrap();
+        let Some(old_geo) = self.space.element_bbox(&elem) else {
+            return;
+        };
         let outputs_for_window = self.space.outputs_for_element(&elem);
-        let output = outputs_for_window
+        let geometry = outputs_for_window
             .first()
             // The window hasn't been mapped yet, use the primary output instead
-            .or_else(|| self.space.outputs().next())
-            // Assumes that at least one output exists
-            .expect("No outputs found");
-        let geometry = self.space.output_geometry(output).unwrap();
+            .or_else(|| return self.space.outputs().next())
+            .and_then(|output| return self.space.output_geometry(output));
+        let Some(geometry) = geometry else {
+            trace!("maximize_request_x11: no output geometry available, ignoring");
+            return;
+        };
 
-        window.set_maximized(true).unwrap();
-        window.configure(geometry).unwrap();
+        window.set_maximized(true).unwrap_or_else(|err| {
+            trace!(?err, "maximize_request_x11: failed to set maximized");
+        });
+        let _ = window.configure(geometry);
         window.user_data().insert_if_missing(OldGeometry::default);
         window
             .user_data()
@@ -364,25 +386,31 @@ impl<BackendData: Backend> AnvilState<BackendData> {
             return;
         };
         let outputs_for_window = self.space.outputs_for_element(&elem);
-        let output = outputs_for_window
+        let Some(output) = outputs_for_window
             .first()
             // The window hasn't been mapped yet, use the primary output instead
-            .or_else(|| self.space.outputs().next())
-            // Assumes that at least one output exists
-            .expect("No outputs found");
-        let geometry = self.space.output_geometry(output).unwrap();
+            .or_else(|| return self.space.outputs().next())
+            .cloned()
+        else {
+            trace!("fullscreen_request_x11: no output available, ignoring");
+            return;
+        };
+        let Some(geometry) = self.space.output_geometry(&output) else {
+            trace!("fullscreen_request_x11: no output geometry, ignoring");
+            return;
+        };
 
-        window.set_fullscreen(true).unwrap();
+        window.set_fullscreen(true).unwrap_or_else(|err| {
+            trace!(?err, "fullscreen_request_x11: failed to set fullscreen");
+        });
         elem.set_ssd(false);
-        window.configure(geometry).unwrap();
+        let _ = window.configure(geometry);
         output
             .user_data()
             .insert_if_missing(FullscreenSurface::default);
-        output
-            .user_data()
-            .get::<FullscreenSurface>()
-            .unwrap()
-            .set(elem.clone());
+        if let Some(fullscreen) = output.user_data().get::<FullscreenSurface>() {
+            fullscreen.set(elem.clone());
+        }
         trace!("Fullscreening: {:?}", elem);
     }
 
@@ -395,50 +423,56 @@ impl<BackendData: Backend> AnvilState<BackendData> {
         else {
             return;
         };
-        window.set_fullscreen(false).unwrap();
+        window.set_fullscreen(false).unwrap_or_else(|err| {
+            trace!(?err, "unfullscreen_request_x11: failed to unset fullscreen");
+        });
         elem.set_ssd(!window.is_decorated());
         if let Some(output) = self.space.outputs().find(|o| {
-            o.user_data()
+            return o.user_data()
                 .get::<FullscreenSurface>()
-                .and_then(|f| f.get())
-                .map(|w| &w == &elem)
+                .and_then(|f| return f.get())
+                .map(|w| return w == elem)
                 .unwrap_or(false)
         }) {
             trace!("Unfullscreening: {:?}", elem);
-            output
-                .user_data()
-                .get::<FullscreenSurface>()
-                .unwrap()
-                .clear();
-            window.configure(self.space.element_bbox(&elem)).unwrap();
-            self.backend_data.reset_buffers(&output);
+            if let Some(fullscreen) = output.user_data().get::<FullscreenSurface>() {
+                fullscreen.clear();
+            }
+            if let Some(bbox) = self.space.element_bbox(&elem) {
+                let _ = window.configure(bbox);
+            }
+            self.backend_data.reset_buffers(output);
         }
     }
 
     pub fn move_request_x11(&mut self, window: &X11Surface) {
-        if let Some(touch) = self.seat.get_touch() {
-            if let Some(start_data) = touch.grab_start_data() {
+        if let Some(touch) = self.seat.get_touch()
+            && let Some(start_data) = touch.grab_start_data() {
                 let element = self
                     .space
                     .elements()
                     .find(|e| matches!(e.0.x11_surface(), Some(w) if w == window));
 
                 if let Some(element) = element {
-                    let mut initial_window_location = self.space.element_location(element).unwrap();
+                    let Some(mut initial_window_location) = self.space.element_location(element)
+                    else {
+                        return;
+                    };
 
                     // If surface is maximized then unmaximize it
                     if window.is_maximized() {
-                        window.set_maximized(false).unwrap();
+                        window.set_maximized(false).unwrap_or_else(|err| {
+                            trace!(?err, "move_request_x11: failed to unset maximized");
+                        });
                         let pos = start_data.location;
                         initial_window_location = (pos.x as i32, pos.y as i32).into();
                         if let Some(old_geo) = window
                             .user_data()
                             .get::<OldGeometry>()
-                            .and_then(|data| data.restore())
+                            .and_then(|data| return data.restore())
                         {
-                            window
-                                .configure(Rectangle::new(initial_window_location, old_geo.size))
-                                .unwrap();
+                            let _ = window
+                                .configure(Rectangle::new(initial_window_location, old_geo.size));
                         }
                     }
 
@@ -452,7 +486,6 @@ impl<BackendData: Backend> AnvilState<BackendData> {
                     return;
                 }
             }
-        }
 
         // luckily anvil only supports one seat anyway...
         let Some(start_data) = self.pointer.grab_start_data() else {
@@ -467,21 +500,23 @@ impl<BackendData: Backend> AnvilState<BackendData> {
             return;
         };
 
-        let mut initial_window_location = self.space.element_location(element).unwrap();
+        let Some(mut initial_window_location) = self.space.element_location(element) else {
+            return;
+        };
 
         // If surface is maximized then unmaximize it
         if window.is_maximized() {
-            window.set_maximized(false).unwrap();
+            window.set_maximized(false).unwrap_or_else(|err| {
+                trace!(?err, "move_request_x11: failed to unset maximized");
+            });
             let pos = self.pointer.current_location();
             initial_window_location = (pos.x as i32, pos.y as i32).into();
             if let Some(old_geo) = window
                 .user_data()
                 .get::<OldGeometry>()
-                .and_then(|data| data.restore())
+                .and_then(|data| return data.restore())
             {
-                window
-                    .configure(Rectangle::new(initial_window_location, old_geo.size))
-                    .unwrap();
+                let _ = window.configure(Rectangle::new(initial_window_location, old_geo.size));
             }
         }
 

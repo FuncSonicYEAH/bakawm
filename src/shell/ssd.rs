@@ -93,7 +93,7 @@ pub struct BorderState {
 
 impl Default for BorderState {
     fn default() -> Self {
-        BorderState {
+        return BorderState {
             top: SolidColorBuffer::default(),
             bottom: SolidColorBuffer::default(),
             left: SolidColorBuffer::default(),
@@ -309,7 +309,7 @@ impl HeaderBar {
         if self
             .pointer_loc
             .as_ref()
-            .map(|l| l.x >= (width - BUTTON_WIDTH) as f64)
+            .map(|l| return l.x >= (width - BUTTON_WIDTH) as f64)
             .unwrap_or(false)
             && (needs_redraw_buttons || !self.close_button_hover)
         {
@@ -321,7 +321,7 @@ impl HeaderBar {
         } else if !self
             .pointer_loc
             .as_ref()
-            .map(|l| l.x >= (width - BUTTON_WIDTH) as f64)
+            .map(|l| return l.x >= (width - BUTTON_WIDTH) as f64)
             .unwrap_or(false)
             && (needs_redraw_buttons || self.close_button_hover)
         {
@@ -334,7 +334,7 @@ impl HeaderBar {
             .pointer_loc
             .as_ref()
             .map(|l| {
-                l.x >= (width - BUTTON_WIDTH * 2) as f64 && l.x <= (width - BUTTON_WIDTH) as f64
+                return l.x >= (width - BUTTON_WIDTH * 2) as f64 && l.x <= (width - BUTTON_WIDTH) as f64
             })
             .unwrap_or(false)
             && (needs_redraw_buttons || !self.maximize_button_hover)
@@ -346,7 +346,7 @@ impl HeaderBar {
             .pointer_loc
             .as_ref()
             .map(|l| {
-                l.x >= (width - BUTTON_WIDTH * 2) as f64 && l.x <= (width - BUTTON_WIDTH) as f64
+                return l.x >= (width - BUTTON_WIDTH * 2) as f64 && l.x <= (width - BUTTON_WIDTH) as f64
             })
             .unwrap_or(false)
             && (needs_redraw_buttons || self.maximize_button_hover)
@@ -371,7 +371,7 @@ impl<R: Renderer> AsRenderElements<R> for HeaderBar {
         let header_end_offset: Point<i32, Logical> = Point::from((self.width as i32, 0));
         let button_offset: Point<i32, Logical> = Point::from((BUTTON_WIDTH as i32, 0));
 
-        vec![
+        return vec![
             SolidColorRenderElement::from_buffer(
                 &self.close_button,
                 location + (header_end_offset - button_offset).to_physical_precise_round(scale),
@@ -405,7 +405,7 @@ impl<R: Renderer> AsRenderElements<R> for HeaderBar {
 impl WindowElement {
     pub fn decoration_state(&self) -> RefMut<'_, WindowState> {
         self.user_data().insert_if_missing(|| {
-            RefCell::new(WindowState {
+            return RefCell::new(WindowState {
                 is_ssd: false,
                 header_bar: HeaderBar {
                     pointer_loc: None,
@@ -435,7 +435,7 @@ impl WindowElement {
             })
         });
 
-        self.user_data()
+        return self.user_data()
             .get::<RefCell<WindowState>>()
             .unwrap()
             .borrow_mut()
@@ -461,7 +461,7 @@ impl WindowElement {
                     .unwrap()
                     .lock()
                     .unwrap();
-                (role.title.clone(), role.app_id.clone())
+                return (role.title.clone(), role.app_id.clone())
             }),
             #[cfg(feature = "xwayland")]
             WindowSurface::X11(surface) => (Some(surface.title()), None),
@@ -472,7 +472,7 @@ impl WindowElement {
         let rule = config.find_window_rule(app_id.as_deref(), title.as_deref());
 
         // Use the window config from the rule (merged over global), or just global
-        let win_config = match rule.and_then(|r| r.window.as_ref()) {
+        let win_config = match rule.and_then(|r| return r.window.as_ref()) {
             Some(partial) => partial.merge_over(&config.window),
             None => config.window.clone(),
         };
@@ -509,6 +509,6 @@ impl WindowElement {
         state.cached_border_element = None;
         state.cached_shadow_element = None;
 
-        true
+        return true
     }
 }

@@ -102,9 +102,9 @@ pub(crate) struct IpcResponseAndData {
 /// Prefers `$XDG_RUNTIME_DIR/bakawm.sock`, falling back to a temp-dir path.
 pub fn socket_path() -> PathBuf {
     if let Some(runtime) = dirs::runtime_dir() {
-        runtime.join("bakawm.sock")
+        return runtime.join("bakawm.sock")
     } else {
-        std::env::temp_dir().join("bakawm.sock")
+        return std::env::temp_dir().join("bakawm.sock")
     }
 }
 
@@ -114,11 +114,11 @@ pub fn socket_path() -> PathBuf {
 
 fn write_request(stream: &mut UnixStream, request: &IpcRequest) -> std::io::Result<()> {
     let json = serde_json::to_vec(request)
-        .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))?;
+        .map_err(|e| return std::io::Error::new(std::io::ErrorKind::InvalidData, e))?;
     let len = json.len() as u32;
     stream.write_all(&len.to_le_bytes())?;
     stream.write_all(&json)?;
-    Ok(())
+    return Ok(())
 }
 
 fn read_request(stream: &mut UnixStream) -> std::io::Result<IpcRequest> {
@@ -133,8 +133,8 @@ fn read_request(stream: &mut UnixStream) -> std::io::Result<IpcRequest> {
     }
     let mut buf = vec![0u8; len];
     stream.read_exact(&mut buf)?;
-    serde_json::from_slice(&buf)
-        .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))
+    return serde_json::from_slice(&buf)
+        .map_err(|e| return std::io::Error::new(std::io::ErrorKind::InvalidData, e))
 }
 
 fn write_response(
@@ -143,7 +143,7 @@ fn write_response(
     binary: Option<&[u8]>,
 ) -> std::io::Result<()> {
     let json = serde_json::to_vec(response)
-        .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))?;
+        .map_err(|e| return std::io::Error::new(std::io::ErrorKind::InvalidData, e))?;
     let len = json.len() as u32;
     stream.write_all(&len.to_le_bytes())?;
     stream.write_all(&json)?;
@@ -153,7 +153,7 @@ fn write_response(
         stream.write_all(&bin_len.to_le_bytes())?;
         stream.write_all(data)?;
     }
-    Ok(())
+    return Ok(())
 }
 
 fn read_response(stream: &mut UnixStream) -> std::io::Result<(IpcResponse, Option<Vec<u8>>)> {
@@ -169,7 +169,7 @@ fn read_response(stream: &mut UnixStream) -> std::io::Result<(IpcResponse, Optio
     let mut buf = vec![0u8; len];
     stream.read_exact(&mut buf)?;
     let response: IpcResponse = serde_json::from_slice(&buf)
-        .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))?;
+        .map_err(|e| return std::io::Error::new(std::io::ErrorKind::InvalidData, e))?;
 
     let binary = if matches!(response, IpcResponse::Screenshot { .. }) {
         let mut bin_len_buf = [0u8; 4];
@@ -182,7 +182,7 @@ fn read_response(stream: &mut UnixStream) -> std::io::Result<(IpcResponse, Optio
         None
     };
 
-    Ok((response, binary))
+    return Ok((response, binary))
 }
 
 // ---------------------------------------------------------------------------
@@ -231,12 +231,12 @@ pub fn start_ipc_server<B: Backend + 'static>(
                     let to_state = to_state_clone.clone();
                     std::thread::spawn(move || handle_connection(stream, to_state));
                 }
-                Ok(PostAction::Continue)
+                return Ok(PostAction::Continue)
             },
         )
         .expect("Failed to insert IPC listener source");
 
-    Ok(path)
+    return Ok(path)
 }
 
 /// Per-connection handler running on a worker thread.
@@ -291,7 +291,7 @@ fn handle_connection(mut stream: UnixStream, to_state: calloop::channel::Sender<
 pub fn send_request(request: &IpcRequest) -> Result<(IpcResponse, Option<Vec<u8>>), String> {
     let path = socket_path();
     let mut stream = UnixStream::connect(&path).map_err(|e| {
-        format!(
+        return format!(
             "Failed to connect to bakawm IPC socket ({}): {}",
             path.display(),
             e
@@ -303,10 +303,10 @@ pub fn send_request(request: &IpcRequest) -> Result<(IpcResponse, Option<Vec<u8>
     let (response, binary) =
         read_response(&mut stream).map_err(|e| format!("Failed to read response: {e}"))?;
 
-    Ok((response, binary))
+    return Ok((response, binary))
 }
 
 /// Convenience: check whether the IPC socket exists.
 pub fn ipc_available() -> bool {
-    socket_path().exists()
+    return socket_path().exists()
 }

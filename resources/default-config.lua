@@ -254,18 +254,19 @@ bk.window({
 -- A "postprocess" shader only defines `vec4 postprocess(vec4 color)` which runs
 -- after the default texture sampling/alpha. The `fragment` field can be inline
 -- GLSL or a path to a .frag file relative to the config directory.
--- bk.shader({ name = "sepia", kind = "postprocess",
---             uniforms = { intensity = 0.8 },
---             fragment = [[
---                 vec4 postprocess(vec4 color) {
---                     float lum = dot(color.rgb, vec3(0.299, 0.587, 0.114));
---                     vec3 sepia = vec3(lum);
---                     sepia.r *= 1.07; sepia.g *= 0.99; sepia.b *= 0.75;
---                     return vec4(mix(color.rgb, sepia, intensity), color.a);
---                 }
---             ]] })
+bk.shader({ name = "sepia", kind = "postprocess",
+             uniforms = { intensity = 0.8 },
+             fragment = [[
+                 vec4 postprocess(vec4 color) {
+                     float lum = dot(color.rgb, vec3(0.299, 0.587, 0.114));
+                     vec3 sepia = vec3(lum);
+                     sepia.r *= 1.07; sepia.g *= 0.99; sepia.b *= 0.75;
+                     return vec4(mix(color.rgb, sepia, intensity), color.a);
+                 }
+             ]] })
+
 -- Apply it to windows: bk.window({ shader = "sepia" }) or per-app:
--- bk.window_rule({ app_id = "kitty", window = { shader = "sepia" } })
+bk.window_rule({ app_id = "kitty", window = { shader = "sepia" } })
 
 -- ── Blur ───────────────────────────────────────────────────────
 

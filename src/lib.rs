@@ -1,4 +1,7 @@
 #![warn(rust_2018_idioms)]
+// Explicit returns are mandated project-wide; needless_return contradicts it.
+#![warn(clippy::implicit_return)]
+#![allow(clippy::needless_return)]
 #![allow(clippy::collapsible_match)]
 // If no backend is enabled, a large portion of the codebase is unused.
 // So silence this useless warning for the CI.

@@ -30,7 +30,7 @@ impl ClippedSurfaceRenderElement {
         program: GlesTexProgram,
         corner_radius: CornerRadius,
     ) -> Self {
-        Self {
+        return Self {
             inner: elem,
             program,
             corner_radius,
@@ -82,7 +82,7 @@ impl ClippedSurfaceRenderElement {
 
         let geo_size = (self.geometry.size.w as f32, self.geometry.size.h as f32);
 
-        vec![
+        return vec![
             Uniform::new("u_scale", self.scale),
             Uniform::new("geo_size", geo_size),
             Uniform::new("corner_radius", <[f32; 4]>::from(self.corner_radius)),
@@ -91,7 +91,7 @@ impl ClippedSurfaceRenderElement {
     }
 
     pub fn shader(renderer: &mut GlesRenderer) -> Option<&GlesTexProgram> {
-        Shaders::get(renderer).clipped_surface.as_ref()
+        return Shaders::get(renderer).clipped_surface.as_ref()
     }
 
     pub fn will_clip(
@@ -104,14 +104,14 @@ impl ClippedSurfaceRenderElement {
         let geo = geometry.to_physical_precise_round(scale);
 
         if corner_radius == CornerRadius::default() {
-            !geo.contains_rect(elem_geo)
+            return !geo.contains_rect(elem_geo)
         } else {
             let corners = Self::rounded_corners(geometry, corner_radius);
             let corners = corners
                 .into_iter()
-                .map(|rect| rect.to_physical_precise_up(scale));
+                .map(|rect| return rect.to_physical_precise_up(scale));
             let geo = Rectangle::subtract_rects_many([geo], corners);
-            !Rectangle::subtract_rects_many([elem_geo], geo).is_empty()
+            return !Rectangle::subtract_rects_many([elem_geo], geo).is_empty()
         }
     }
 
@@ -124,7 +124,7 @@ impl ClippedSurfaceRenderElement {
         let bottom_right = corner_radius.bottom_right as f64;
         let bottom_left = corner_radius.bottom_left as f64;
 
-        [
+        return [
             Rectangle::new(geo.loc, Size::from((top_left, top_left))),
             Rectangle::new(
                 Point::from((geo.loc.x + geo.size.w - top_right, geo.loc.y)),
@@ -147,23 +147,23 @@ impl ClippedSurfaceRenderElement {
 
 impl Element for ClippedSurfaceRenderElement {
     fn id(&self) -> &Id {
-        self.inner.id()
+        return self.inner.id()
     }
 
     fn current_commit(&self) -> CommitCounter {
-        self.inner.current_commit()
+        return self.inner.current_commit()
     }
 
     fn geometry(&self, scale: Scale<f64>) -> Rectangle<i32, Physical> {
-        self.inner.geometry(scale)
+        return self.inner.geometry(scale)
     }
 
     fn src(&self) -> Rectangle<f64, Buffer> {
-        self.inner.src()
+        return self.inner.src()
     }
 
     fn transform(&self) -> Transform {
-        self.inner.transform()
+        return self.inner.transform()
     }
 
     fn damage_since(
@@ -174,9 +174,9 @@ impl Element for ClippedSurfaceRenderElement {
         let damage = self.inner.damage_since(scale, commit);
         let mut geo = self.geometry.to_physical_precise_round(scale);
         geo.loc -= self.geometry(scale).loc;
-        damage
+        return damage
             .into_iter()
-            .filter_map(|rect| rect.intersection(geo))
+            .filter_map(|rect| return rect.intersection(geo))
             .collect()
     }
 
@@ -186,28 +186,28 @@ impl Element for ClippedSurfaceRenderElement {
         geo.loc -= self.geometry(scale).loc;
         let regions = regions
             .into_iter()
-            .filter_map(|rect| rect.intersection(geo));
+            .filter_map(|rect| return rect.intersection(geo));
 
         if self.corner_radius == CornerRadius::default() {
-            regions.collect()
+            return regions.collect()
         } else {
             let corners = Self::rounded_corners(self.geometry, self.corner_radius);
             let elem_loc = self.geometry(scale).loc;
             let corners = corners.into_iter().map(|rect| {
                 let mut rect = rect.to_physical_precise_up(scale);
                 rect.loc -= elem_loc;
-                rect
+                return rect
             });
-            OpaqueRegions::from_slice(&Rectangle::subtract_rects_many(regions, corners))
+            return OpaqueRegions::from_slice(&Rectangle::subtract_rects_many(regions, corners))
         }
     }
 
     fn alpha(&self) -> f32 {
-        self.inner.alpha()
+        return self.inner.alpha()
     }
 
     fn kind(&self) -> Kind {
-        self.inner.kind()
+        return self.inner.kind()
     }
 }
 
@@ -232,10 +232,10 @@ impl RenderElement<GlesRenderer> for ClippedSurfaceRenderElement {
             cache,
         )?;
         frame.clear_tex_program_override();
-        Ok(())
+        return Ok(())
     }
 
     fn underlying_storage(&self, _renderer: &mut GlesRenderer) -> Option<UnderlyingStorage<'_>> {
-        None
+        return None
     }
 }

@@ -162,10 +162,10 @@ impl<'a, E: Element> CursorData<'a, E> {
 
         let geo = crate::render_helpers::encompassing_geo(scale, pointer_elements.iter());
         let relocated = Vec::from_iter(pointer_elements.iter().map(|elem| {
-            RelocateRenderElement::from_element(elem, geo.loc.upscale(-1), Relocate::Relative)
+            return RelocateRenderElement::from_element(elem, geo.loc.upscale(-1), Relocate::Relative)
         }));
 
-        Self {
+        return Self {
             elem_count,
             relocated,
             location,
@@ -212,11 +212,10 @@ impl PipeWire {
             .error(move |id, seq, res, message| {
                 warn!(id, seq, res, message, "pw error");
 
-                if id == PW_ID_CORE && res == -32 {
-                    if let Err(err) = to_state_.send(PwToState::FatalError) {
+                if id == PW_ID_CORE && res == -32
+                    && let Err(err) = to_state_.send(PwToState::FatalError) {
                         warn!("error sending FatalError to state: {err:?}");
                     }
-                }
             })
             .register();
         mem::forget(listener);
@@ -224,18 +223,18 @@ impl PipeWire {
         struct AsFdWrapper(MainLoopRc);
         impl AsFd for AsFdWrapper {
             fn as_fd(&self) -> BorrowedFd<'_> {
-                self.0.loop_().fd()
+                return self.0.loop_().fd()
             }
         }
         let generic = Generic::new(AsFdWrapper(main_loop), Interest::READ, Mode::Level);
         let token = event_loop
             .insert_source(generic, move |_, wrapper, _| {
                 wrapper.0.loop_().iterate(Duration::ZERO);
-                Ok(PostAction::Continue)
+                return Ok(PostAction::Continue)
             })
             .unwrap();
 
-        Ok(Self {
+        return Ok(Self {
             _context: context,
             core,
             token,
@@ -716,7 +715,7 @@ impl PipeWire {
 
                     inner
                         .rendering_buffers
-                        .retain(|(buf, _)| buf.as_ptr() != buffer);
+                        .retain(|(buf, _)| return buf.as_ptr() != buffer);
 
                     unsafe {
                         let spa_buffer = (*buffer).buffer;
@@ -763,17 +762,17 @@ impl PipeWire {
             sequence_counter: 0,
             inner,
         };
-        Ok(cast)
+        return Ok(cast)
     }
 }
 
 impl Cast {
     pub fn is_active(&self) -> bool {
-        self.inner.borrow().is_active
+        return self.inner.borrow().is_active
     }
 
     pub fn node_id(&self) -> Option<u32> {
-        self.inner.borrow().node_id
+        return self.inner.borrow().node_id
     }
 
     pub fn ensure_size(&self, size: Size<i32, Physical>) -> anyhow::Result<CastSizeChange> {
@@ -809,7 +808,7 @@ impl Cast {
             .update_params(params)
             .context("error updating stream params")?;
 
-        Ok(CastSizeChange::Pending)
+        return Ok(CastSizeChange::Pending)
     }
 
     pub fn set_refresh(&mut self, refresh: u32) -> anyhow::Result<()> {
@@ -829,7 +828,7 @@ impl Cast {
             .update_params(params)
             .context("error updating stream params")?;
 
-        Ok(())
+        return Ok(())
     }
 
     fn compute_extra_delay(&self, target_frame_time: Duration) -> Duration {
@@ -849,9 +848,9 @@ impl Cast {
 
         let diff = target_frame_time - last;
         if diff < min {
-            min - diff
+            return min - diff
         } else {
-            Duration::ZERO
+            return Duration::ZERO
         }
     }
 
@@ -867,7 +866,7 @@ impl Cast {
             .event_loop
             .insert_source(timer, move |_, _, state| {
                 state.backend_data.queue_redraw(&output);
-                TimeoutAction::Drop
+                return TimeoutAction::Drop
             })
             .unwrap();
         self.scheduled_redraw = Some(token);
@@ -887,10 +886,10 @@ impl Cast {
         let delay = self.compute_extra_delay(target_frame_time);
         if delay >= CAST_DELAY_ALLOWANCE {
             self.schedule_redraw(output.clone(), target_frame_time + delay);
-            true
+            return true
         } else {
             self.remove_scheduled_redraw();
-            false
+            return false
         }
     }
 
@@ -902,7 +901,7 @@ impl Cast {
                 self.stream.state()
             );
         }
-        buf
+        return buf
     }
 
     fn queue_completed_buffers(&mut self) {
@@ -911,7 +910,7 @@ impl Cast {
         let first_in_progress_idx = inner
             .rendering_buffers
             .iter()
-            .position(|(_, sync)| !sync.is_reached())
+            .position(|(_, sync)| return !sync.is_reached())
             .unwrap_or(inner.rendering_buffers.len());
 
         let count = first_in_progress_idx;
@@ -965,7 +964,7 @@ impl Cast {
                             }
                         }
 
-                        Ok(PostAction::Remove)
+                        return Ok(PostAction::Remove)
                     })
                     .unwrap();
             }
@@ -999,9 +998,9 @@ impl Cast {
             return false;
         };
         let damage_tracker = damage_tracker
-            .get_or_insert_with(|| OutputDamageTracker::new(size, scale, Transform::Normal));
+            .get_or_insert_with(|| return OutputDamageTracker::new(size, scale, Transform::Normal));
         let cursor_damage_tracker = cursor_damage_tracker.get_or_insert_with(|| {
-            OutputDamageTracker::new(
+            return OutputDamageTracker::new(
                 Size::from((CURSOR_WIDTH as _, CURSOR_HEIGHT as _)),
                 scale,
                 Transform::Normal,
@@ -1089,12 +1088,12 @@ impl Cast {
                     );
                     mark_buffer_as_good(pw_buffer, &mut self.sequence_counter);
                     self.queue_after_sync(pw_buffer, sync_point);
-                    true
+                    return true
                 }
                 Err(err) => {
                     warn!("error rendering to dmabuf: {err:?}");
                     return_unused_buffer(&self.stream, pw_buffer);
-                    false
+                    return false
                 }
             }
         }
@@ -1134,12 +1133,12 @@ impl Cast {
                 Ok(sync_point) => {
                     mark_buffer_as_good(pw_buffer, &mut self.sequence_counter);
                     self.queue_after_sync(pw_buffer, sync_point);
-                    true
+                    return true
                 }
                 Err(err) => {
                     warn!("error clearing dmabuf: {err:?}");
                     return_unused_buffer(&self.stream, pw_buffer);
-                    false
+                    return false
                 }
             }
         }
@@ -1149,23 +1148,23 @@ impl Cast {
 impl CastState {
     fn pending_size(&self) -> Option<Size<u32, Physical>> {
         match self {
-            CastState::ResizePending { pending_size } => Some(*pending_size),
-            CastState::ConfirmationPending { size, .. } => Some(*size),
-            CastState::Ready { .. } => None,
+            CastState::ResizePending { pending_size } => return Some(*pending_size),
+            CastState::ConfirmationPending { size, .. } => return Some(*size),
+            CastState::Ready { .. } => return None,
         }
     }
 
     fn expected_format_size(&self) -> Size<u32, Physical> {
         match self {
-            CastState::ResizePending { pending_size } => *pending_size,
-            CastState::ConfirmationPending { size, .. } => *size,
-            CastState::Ready { size, .. } => *size,
+            CastState::ResizePending { pending_size } => return *pending_size,
+            CastState::ConfirmationPending { size, .. } => return *size,
+            CastState::Ready { size, .. } => return *size,
         }
     }
 }
 
 fn pw_version_supports_cursor_metadata() -> bool {
-    unsafe { pw_check_library_version(1, 4, 8) }
+    unsafe { return pw_check_library_version(1, 4, 8) }
 }
 
 fn make_video_params(
@@ -1188,7 +1187,7 @@ fn make_video_params(
 
     let formats: Vec<_> = formats
         .iter()
-        .filter_map(|f| (f.code == fourcc).then_some(u64::from(f.modifier) as i64))
+        .filter_map(|f| return (f.code == fourcc).then_some(u64::from(f.modifier) as i64))
         .collect();
 
     let dont_fixate = if formats.len() > 1 {
@@ -1197,7 +1196,7 @@ fn make_video_params(
         PropertyFlags::empty()
     };
 
-    pod::object!(
+    return pod::object!(
         SpaTypes::ObjectParamFormat,
         ParamType::EnumFormat,
         pod::property!(FormatProperties::MediaType, Id, MediaType::Video),
@@ -1247,7 +1246,7 @@ fn make_video_params(
 
 fn make_pod(buffer: &mut Vec<u8>, object: pod::Object) -> &Pod {
     PodSerializer::serialize(Cursor::new(&mut *buffer), &pod::Value::Object(object)).unwrap();
-    Pod::from_bytes(buffer).unwrap()
+    return Pod::from_bytes(buffer).unwrap()
 }
 
 fn find_preferred_modifier(
@@ -1263,7 +1262,7 @@ fn find_preferred_modifier(
         .context("error exporting GBM buffer object as dmabuf")?;
     let plane_count = dmabuf.num_planes();
 
-    Ok((modifier, plane_count))
+    return Ok((modifier, plane_count))
 }
 
 fn allocate_buffer(
@@ -1281,12 +1280,12 @@ fn allocate_buffer(
             .context("error creating GBM buffer object")?;
 
         let buffer = GbmBuffer::from_bo(bo, true);
-        Ok((buffer, Modifier::Invalid))
+        return Ok((buffer, Modifier::Invalid))
     } else {
         let modifiers = modifiers
             .iter()
-            .map(|m| Modifier::from(*m as u64))
-            .filter(|m| *m != Modifier::Invalid);
+            .map(|m| return Modifier::from(*m as u64))
+            .filter(|m| return *m != Modifier::Invalid);
 
         let bo = gbm
             .create_buffer_object_with_modifiers2::<()>(w, h, fourcc, modifiers, flags)
@@ -1294,7 +1293,7 @@ fn allocate_buffer(
 
         let modifier = bo.modifier();
         let buffer = GbmBuffer::from_bo(bo, false);
-        Ok((buffer, modifier))
+        return Ok((buffer, modifier))
     }
 }
 
@@ -1308,7 +1307,7 @@ fn allocate_dmabuf(
     let dmabuf = buffer
         .export()
         .context("error exporting GBM buffer object as dmabuf")?;
-    Ok(dmabuf)
+    return Ok(dmabuf)
 }
 
 unsafe fn return_unused_buffer(stream: &Stream, pw_buffer: NonNull<pw_buffer>) {
@@ -1352,7 +1351,7 @@ unsafe fn find_meta_header(buffer: *mut spa_buffer) -> Option<NonNull<spa_meta_h
         let p =
             spa_buffer_find_meta_data(buffer, SPA_META_Header, mem::size_of::<spa_meta_header>())
                 .cast();
-        NonNull::new(p)
+        return NonNull::new(p)
     }
 }
 

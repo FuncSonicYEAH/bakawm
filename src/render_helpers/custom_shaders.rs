@@ -67,14 +67,14 @@ pub struct CustomShaders {
 
 impl CustomShaders {
     pub fn get(&self, name: &str) -> Option<&CustomShaderProgram> {
-        self.programs.get(name)
+        return self.programs.get(name)
     }
 }
 
 /// Insert the (initially empty) registry into the EGL context's user data.
 pub fn init(renderer: &mut GlesRenderer) {
     let data = renderer.egl_context().user_data();
-    data.insert_if_missing(|| RefCell::new(CustomShaders::default()));
+    data.insert_if_missing(|| return RefCell::new(CustomShaders::default()));
 }
 
 /// Recompile user shaders when the config generation changed.
@@ -86,7 +86,7 @@ pub fn refresh_if_needed(renderer: &mut GlesRenderer, config: &Config) {
         .egl_context()
         .user_data()
         .get::<RefCell<CustomShaders>>()
-        .map(|cell| cell.borrow().generation != config.shader_gen)
+        .map(|cell| return cell.borrow().generation != config.shader_gen)
         .unwrap_or(false);
     if !stale {
         return;
@@ -111,7 +111,7 @@ pub fn refresh_if_needed(renderer: &mut GlesRenderer, config: &Config) {
             }
         };
 
-        let additional_uniforms: Vec<_> = shader.uniforms.iter().map(|u| u.name()).collect();
+        let additional_uniforms: Vec<_> = shader.uniforms.iter().map(|u| return u.name()).collect();
         match renderer.compile_custom_texture_shader(&source, &additional_uniforms) {
             Ok(program) => {
                 new.programs.insert(
@@ -147,7 +147,7 @@ pub fn get_program(renderer: &mut GlesRenderer, name: &str) -> Option<CustomShad
         .egl_context()
         .user_data()
         .get::<RefCell<CustomShaders>>()?;
-    cell.borrow().get(name).cloned()
+    return cell.borrow().get(name).cloned()
 }
 
 /// A render element that draws a window surface with a custom shader.
@@ -163,7 +163,7 @@ impl CustomShaderRenderElement {
         elem: WaylandSurfaceRenderElement<GlesRenderer>,
         program: &CustomShaderProgram,
     ) -> Self {
-        Self {
+        return Self {
             inner: elem,
             program: program.program.clone(),
             uniforms: program.uniforms.clone(),
@@ -173,23 +173,23 @@ impl CustomShaderRenderElement {
 
 impl Element for CustomShaderRenderElement {
     fn id(&self) -> &Id {
-        self.inner.id()
+        return self.inner.id()
     }
 
     fn current_commit(&self) -> CommitCounter {
-        self.inner.current_commit()
+        return self.inner.current_commit()
     }
 
     fn geometry(&self, scale: Scale<f64>) -> Rectangle<i32, Physical> {
-        self.inner.geometry(scale)
+        return self.inner.geometry(scale)
     }
 
     fn src(&self) -> Rectangle<f64, Buffer> {
-        self.inner.src()
+        return self.inner.src()
     }
 
     fn transform(&self) -> Transform {
-        self.inner.transform()
+        return self.inner.transform()
     }
 
     fn damage_since(
@@ -197,19 +197,19 @@ impl Element for CustomShaderRenderElement {
         scale: Scale<f64>,
         commit: Option<CommitCounter>,
     ) -> DamageSet<i32, Physical> {
-        self.inner.damage_since(scale, commit)
+        return self.inner.damage_since(scale, commit)
     }
 
     fn opaque_regions(&self, scale: Scale<f64>) -> OpaqueRegions<i32, Physical> {
-        self.inner.opaque_regions(scale)
+        return self.inner.opaque_regions(scale)
     }
 
     fn alpha(&self) -> f32 {
-        self.inner.alpha()
+        return self.inner.alpha()
     }
 
     fn kind(&self) -> Kind {
-        self.inner.kind()
+        return self.inner.kind()
     }
 }
 
@@ -223,7 +223,7 @@ impl RenderElement<GlesRenderer> for CustomShaderRenderElement {
         opaque_regions: &[Rectangle<i32, Physical>],
         cache: Option<&UserDataMap>,
     ) -> Result<(), GlesError> {
-        let uniforms: Vec<Uniform<'static>> = self.uniforms.iter().map(|u| u.uniform()).collect();
+        let uniforms: Vec<Uniform<'static>> = self.uniforms.iter().map(|u| return u.uniform()).collect();
         frame.override_default_tex_program(self.program.clone(), uniforms);
         RenderElement::<GlesRenderer>::draw(
             &self.inner,
@@ -235,10 +235,10 @@ impl RenderElement<GlesRenderer> for CustomShaderRenderElement {
             cache,
         )?;
         frame.clear_tex_program_override();
-        Ok(())
+        return Ok(())
     }
 
     fn underlying_storage(&self, _renderer: &mut GlesRenderer) -> Option<UnderlyingStorage<'_>> {
-        None
+        return None
     }
 }

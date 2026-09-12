@@ -59,11 +59,11 @@ smithay::backend::renderer::element::render_elements! {
 impl<R: Renderer> std::fmt::Debug for CustomRenderElements<R> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Self::Pointer(arg0) => f.debug_tuple("Pointer").field(arg0).finish(),
-            Self::Surface(arg0) => f.debug_tuple("Surface").field(arg0).finish(),
+            Self::Pointer(arg0) => return f.debug_tuple("Pointer").field(arg0).finish(),
+            Self::Surface(arg0) => return f.debug_tuple("Surface").field(arg0).finish(),
             #[cfg(feature = "debug")]
-            Self::Fps(arg0) => f.debug_tuple("Fps").field(arg0).finish(),
-            Self::_GenericCatcher(arg0) => f.debug_tuple("_GenericCatcher").field(arg0).finish(),
+            Self::Fps(arg0) => return f.debug_tuple("Fps").field(arg0).finish(),
+            Self::_GenericCatcher(arg0) => return f.debug_tuple("_GenericCatcher").field(arg0).finish(),
         }
     }
 }
@@ -82,12 +82,12 @@ impl<R: Renderer + ImportAll + ImportMem, E: RenderElement<R> + std::fmt::Debug>
 {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Self::Space(arg0) => f.debug_tuple("Space").field(arg0).finish(),
-            Self::Window(arg0) => f.debug_tuple("Window").field(arg0).finish(),
-            Self::Custom(arg0) => f.debug_tuple("Custom").field(arg0).finish(),
-            Self::Preview(arg0) => f.debug_tuple("Preview").field(arg0).finish(),
-            Self::OpenAnim(arg0) => f.debug_tuple("OpenAnim").field(arg0).finish(),
-            Self::_GenericCatcher(arg0) => f.debug_tuple("_GenericCatcher").field(arg0).finish(),
+            Self::Space(arg0) => return f.debug_tuple("Space").field(arg0).finish(),
+            Self::Window(arg0) => return f.debug_tuple("Window").field(arg0).finish(),
+            Self::Custom(arg0) => return f.debug_tuple("Custom").field(arg0).finish(),
+            Self::Preview(arg0) => return f.debug_tuple("Preview").field(arg0).finish(),
+            Self::OpenAnim(arg0) => return f.debug_tuple("OpenAnim").field(arg0).finish(),
+            Self::_GenericCatcher(arg0) => return f.debug_tuple("_GenericCatcher").field(arg0).finish(),
         }
     }
 }
@@ -119,10 +119,10 @@ where
 {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Self::Output(e) => f.debug_tuple("Output").field(e).finish(),
-            Self::Blur(e) => f.debug_tuple("Blur").field(e).finish(),
-            Self::ClosingWindow(e) => f.debug_tuple("ClosingWindow").field(e).finish(),
-            Self::ResizeSnapshot(e) => f.debug_tuple("ResizeSnapshot").field(e).finish(),
+            Self::Output(e) => return f.debug_tuple("Output").field(e).finish(),
+            Self::Blur(e) => return f.debug_tuple("Blur").field(e).finish(),
+            Self::ClosingWindow(e) => return f.debug_tuple("ClosingWindow").field(e).finish(),
+            Self::ResizeSnapshot(e) => return f.debug_tuple("ResizeSnapshot").field(e).finish(),
         }
     }
 }
@@ -134,7 +134,7 @@ where
     E: RenderElement<R>,
 {
     fn from(e: OutputRenderElements<R, E>) -> Self {
-        Self::Output(e)
+        return Self::Output(e)
     }
 }
 
@@ -146,46 +146,46 @@ where
 {
     fn id(&self) -> &Id {
         match self {
-            Self::Output(e) => e.id(),
-            Self::Blur(e) => e.id(),
-            Self::ClosingWindow(e) => e.id(),
-            Self::ResizeSnapshot(e) => e.id(),
+            Self::Output(e) => return e.id(),
+            Self::Blur(e) => return e.id(),
+            Self::ClosingWindow(e) => return e.id(),
+            Self::ResizeSnapshot(e) => return e.id(),
         }
     }
 
     fn current_commit(&self) -> CommitCounter {
         match self {
-            Self::Output(e) => e.current_commit(),
-            Self::Blur(e) => e.current_commit(),
-            Self::ClosingWindow(e) => e.current_commit(),
-            Self::ResizeSnapshot(e) => e.current_commit(),
+            Self::Output(e) => return e.current_commit(),
+            Self::Blur(e) => return e.current_commit(),
+            Self::ClosingWindow(e) => return e.current_commit(),
+            Self::ResizeSnapshot(e) => return e.current_commit(),
         }
     }
 
     fn geometry(&self, scale: Scale<f64>) -> Rectangle<i32, smithay::utils::Physical> {
         match self {
-            Self::Output(e) => e.geometry(scale),
-            Self::Blur(e) => e.geometry(scale),
-            Self::ClosingWindow(e) => e.geometry(scale),
-            Self::ResizeSnapshot(e) => e.geometry(scale),
+            Self::Output(e) => return e.geometry(scale),
+            Self::Blur(e) => return e.geometry(scale),
+            Self::ClosingWindow(e) => return e.geometry(scale),
+            Self::ResizeSnapshot(e) => return e.geometry(scale),
         }
     }
 
     fn transform(&self) -> Transform {
         match self {
-            Self::Output(e) => e.transform(),
-            Self::Blur(e) => e.transform(),
-            Self::ClosingWindow(e) => e.transform(),
-            Self::ResizeSnapshot(e) => e.transform(),
+            Self::Output(e) => return e.transform(),
+            Self::Blur(e) => return e.transform(),
+            Self::ClosingWindow(e) => return e.transform(),
+            Self::ResizeSnapshot(e) => return e.transform(),
         }
     }
 
     fn src(&self) -> Rectangle<f64, Buffer> {
         match self {
-            Self::Output(e) => e.src(),
-            Self::Blur(e) => e.src(),
-            Self::ClosingWindow(e) => e.src(),
-            Self::ResizeSnapshot(e) => e.src(),
+            Self::Output(e) => return e.src(),
+            Self::Blur(e) => return e.src(),
+            Self::ClosingWindow(e) => return e.src(),
+            Self::ResizeSnapshot(e) => return e.src(),
         }
     }
 
@@ -195,46 +195,46 @@ where
         commit: Option<CommitCounter>,
     ) -> DamageSet<i32, smithay::utils::Physical> {
         match self {
-            Self::Output(e) => e.damage_since(scale, commit),
-            Self::Blur(e) => e.damage_since(scale, commit),
-            Self::ClosingWindow(e) => e.damage_since(scale, commit),
-            Self::ResizeSnapshot(e) => e.damage_since(scale, commit),
+            Self::Output(e) => return e.damage_since(scale, commit),
+            Self::Blur(e) => return e.damage_since(scale, commit),
+            Self::ClosingWindow(e) => return e.damage_since(scale, commit),
+            Self::ResizeSnapshot(e) => return e.damage_since(scale, commit),
         }
     }
 
     fn opaque_regions(&self, scale: Scale<f64>) -> OpaqueRegions<i32, smithay::utils::Physical> {
         match self {
-            Self::Output(e) => e.opaque_regions(scale),
-            Self::Blur(e) => e.opaque_regions(scale),
-            Self::ClosingWindow(e) => e.opaque_regions(scale),
-            Self::ResizeSnapshot(e) => e.opaque_regions(scale),
+            Self::Output(e) => return e.opaque_regions(scale),
+            Self::Blur(e) => return e.opaque_regions(scale),
+            Self::ClosingWindow(e) => return e.opaque_regions(scale),
+            Self::ResizeSnapshot(e) => return e.opaque_regions(scale),
         }
     }
 
     fn alpha(&self) -> f32 {
         match self {
-            Self::Output(e) => e.alpha(),
-            Self::Blur(e) => e.alpha(),
-            Self::ClosingWindow(e) => e.alpha(),
-            Self::ResizeSnapshot(e) => e.alpha(),
+            Self::Output(e) => return e.alpha(),
+            Self::Blur(e) => return e.alpha(),
+            Self::ClosingWindow(e) => return e.alpha(),
+            Self::ResizeSnapshot(e) => return e.alpha(),
         }
     }
 
     fn kind(&self) -> Kind {
         match self {
-            Self::Output(e) => e.kind(),
-            Self::Blur(e) => e.kind(),
-            Self::ClosingWindow(e) => e.kind(),
-            Self::ResizeSnapshot(e) => e.kind(),
+            Self::Output(e) => return e.kind(),
+            Self::Blur(e) => return e.kind(),
+            Self::ClosingWindow(e) => return e.kind(),
+            Self::ResizeSnapshot(e) => return e.kind(),
         }
     }
 
     fn is_framebuffer_effect(&self) -> bool {
         match self {
-            Self::Output(e) => e.is_framebuffer_effect(),
-            Self::Blur(e) => e.is_framebuffer_effect(),
-            Self::ClosingWindow(e) => e.is_framebuffer_effect(),
-            Self::ResizeSnapshot(e) => e.is_framebuffer_effect(),
+            Self::Output(e) => return e.is_framebuffer_effect(),
+            Self::Blur(e) => return e.is_framebuffer_effect(),
+            Self::ClosingWindow(e) => return e.is_framebuffer_effect(),
+            Self::ResizeSnapshot(e) => return e.is_framebuffer_effect(),
         }
     }
 }
@@ -254,8 +254,8 @@ where
         cache: Option<&smithay::utils::user_data::UserDataMap>,
     ) -> Result<(), GlesError> {
         match self {
-            Self::Output(e) => e.draw(frame, src, dst, damage, opaque_regions, cache),
-            Self::Blur(e) => RenderElement::<GlesRenderer>::draw(
+            Self::Output(e) => return e.draw(frame, src, dst, damage, opaque_regions, cache),
+            Self::Blur(e) => return RenderElement::<GlesRenderer>::draw(
                 e,
                 frame,
                 src,
@@ -264,7 +264,7 @@ where
                 opaque_regions,
                 cache,
             ),
-            Self::ClosingWindow(e) => RenderElement::<GlesRenderer>::draw(
+            Self::ClosingWindow(e) => return RenderElement::<GlesRenderer>::draw(
                 e,
                 frame,
                 src,
@@ -273,7 +273,7 @@ where
                 opaque_regions,
                 cache,
             ),
-            Self::ResizeSnapshot(e) => RenderElement::<GlesRenderer>::draw(
+            Self::ResizeSnapshot(e) => return RenderElement::<GlesRenderer>::draw(
                 e,
                 frame,
                 src,
@@ -287,10 +287,10 @@ where
 
     fn underlying_storage(&self, renderer: &mut GlesRenderer) -> Option<UnderlyingStorage<'_>> {
         match self {
-            Self::Output(e) => e.underlying_storage(renderer),
-            Self::Blur(e) => e.underlying_storage(renderer),
-            Self::ClosingWindow(e) => e.underlying_storage(renderer),
-            Self::ResizeSnapshot(e) => e.underlying_storage(renderer),
+            Self::Output(e) => return e.underlying_storage(renderer),
+            Self::Blur(e) => return e.underlying_storage(renderer),
+            Self::ClosingWindow(e) => return e.underlying_storage(renderer),
+            Self::ResizeSnapshot(e) => return e.underlying_storage(renderer),
         }
     }
 
@@ -302,15 +302,15 @@ where
         cache: &smithay::utils::user_data::UserDataMap,
     ) -> Result<(), GlesError> {
         match self {
-            Self::Output(e) => e.capture_framebuffer(frame, src, dst, cache),
+            Self::Output(e) => return e.capture_framebuffer(frame, src, dst, cache),
             Self::Blur(e) => {
-                RenderElement::<GlesRenderer>::capture_framebuffer(e, frame, src, dst, cache)
+                return RenderElement::<GlesRenderer>::capture_framebuffer(e, frame, src, dst, cache)
             }
             Self::ClosingWindow(e) => {
-                RenderElement::<GlesRenderer>::capture_framebuffer(e, frame, src, dst, cache)
+                return RenderElement::<GlesRenderer>::capture_framebuffer(e, frame, src, dst, cache)
             }
             Self::ResizeSnapshot(e) => {
-                RenderElement::<GlesRenderer>::capture_framebuffer(e, frame, src, dst, cache)
+                return RenderElement::<GlesRenderer>::capture_framebuffer(e, frame, src, dst, cache)
             }
         }
     }
@@ -333,8 +333,8 @@ where
         cache: Option<&smithay::utils::user_data::UserDataMap>,
     ) -> Result<(), <UdevMultiRenderer<'a, 'b> as RendererSuper>::Error> {
         match self {
-            Self::Output(e) => e.draw(frame, src, dst, damage, opaque_regions, cache),
-            Self::Blur(e) => RenderElement::<GlesRenderer>::draw(
+            Self::Output(e) => return e.draw(frame, src, dst, damage, opaque_regions, cache),
+            Self::Blur(e) => return RenderElement::<GlesRenderer>::draw(
                 e,
                 frame.as_mut(),
                 src,
@@ -344,7 +344,7 @@ where
                 cache,
             )
             .map_err(Into::into),
-            Self::ClosingWindow(e) => RenderElement::<GlesRenderer>::draw(
+            Self::ClosingWindow(e) => return RenderElement::<GlesRenderer>::draw(
                 e,
                 frame.as_mut(),
                 src,
@@ -354,7 +354,7 @@ where
                 cache,
             )
             .map_err(Into::into),
-            Self::ResizeSnapshot(e) => RenderElement::<GlesRenderer>::draw(
+            Self::ResizeSnapshot(e) => return RenderElement::<GlesRenderer>::draw(
                 e,
                 frame.as_mut(),
                 src,
@@ -373,10 +373,10 @@ where
     ) -> Option<UnderlyingStorage<'_>> {
         let gles = renderer.as_mut();
         match self {
-            Self::Output(e) => e.underlying_storage(renderer),
-            Self::Blur(e) => e.underlying_storage(gles),
-            Self::ClosingWindow(e) => e.underlying_storage(gles),
-            Self::ResizeSnapshot(e) => e.underlying_storage(gles),
+            Self::Output(e) => return e.underlying_storage(renderer),
+            Self::Blur(e) => return e.underlying_storage(gles),
+            Self::ClosingWindow(e) => return e.underlying_storage(gles),
+            Self::ResizeSnapshot(e) => return e.underlying_storage(gles),
         }
     }
 
@@ -388,8 +388,8 @@ where
         cache: &smithay::utils::user_data::UserDataMap,
     ) -> Result<(), <UdevMultiRenderer<'a, 'b> as RendererSuper>::Error> {
         match self {
-            Self::Output(e) => e.capture_framebuffer(frame, src, dst, cache),
-            Self::Blur(e) => RenderElement::<GlesRenderer>::capture_framebuffer(
+            Self::Output(e) => return e.capture_framebuffer(frame, src, dst, cache),
+            Self::Blur(e) => return RenderElement::<GlesRenderer>::capture_framebuffer(
                 e,
                 frame.as_mut(),
                 src,
@@ -397,7 +397,7 @@ where
                 cache,
             )
             .map_err(Into::into),
-            Self::ClosingWindow(e) => RenderElement::<GlesRenderer>::capture_framebuffer(
+            Self::ClosingWindow(e) => return RenderElement::<GlesRenderer>::capture_framebuffer(
                 e,
                 frame.as_mut(),
                 src,
@@ -405,7 +405,7 @@ where
                 cache,
             )
             .map_err(Into::into),
-            Self::ResizeSnapshot(e) => RenderElement::<GlesRenderer>::capture_framebuffer(
+            Self::ResizeSnapshot(e) => return RenderElement::<GlesRenderer>::capture_framebuffer(
                 e,
                 frame.as_mut(),
                 src,
@@ -443,7 +443,7 @@ where
     let output_size = output
         .current_mode()
         .map(|mode| {
-            output_transform
+            return output_transform
                 .transform_size(mode.size)
                 .to_f64()
                 .to_logical(output_scale)
@@ -459,7 +459,7 @@ where
         f64::round(output_size.h / rows) as i32 - preview_padding * 2,
     ));
 
-    elements
+    return elements
         .into_iter()
         .enumerate()
         .flat_map(move |(element_index, window)| {
@@ -470,7 +470,7 @@ where
                 preview_padding + (preview_padding + preview_size.h) * row as i32,
             ));
             let constrain = Rectangle::new(preview_location, preview_size);
-            constrain_space_element(
+            return constrain_space_element(
                 renderer,
                 window,
                 preview_location,
@@ -509,7 +509,7 @@ fn resolve_window_blur(window: &WindowElement, config: &Config) -> ResolvedWindo
                 .unwrap()
                 .lock()
                 .unwrap();
-            (role.title.clone(), role.app_id.clone())
+            return (role.title.clone(), role.app_id.clone())
         }),
         #[cfg(feature = "xwayland")]
         WindowSurface::X11(surface) => (Some(surface.title()), None),
@@ -520,16 +520,16 @@ fn resolve_window_blur(window: &WindowElement, config: &Config) -> ResolvedWindo
     for rule in &config.window_rules {
         let matches = match (&rule.app_id, &rule.title) {
             (Some(rule_id), Some(rule_title)) => {
-                app_id.as_ref().map_or(false, |id| id.contains(rule_id))
-                    && title.as_ref().map_or(false, |t| t.contains(rule_title))
+                app_id.as_ref().is_some_and(|id| return id.contains(rule_id))
+                    && title.as_ref().is_some_and(|t| return t.contains(rule_title))
             }
-            (Some(rule_id), None) => app_id.as_ref().map_or(false, |id| id.contains(rule_id)),
-            (None, Some(rule_title)) => title.as_ref().map_or(false, |t| t.contains(rule_title)),
+            (Some(rule_id), None) => app_id.as_ref().is_some_and(|id| return id.contains(rule_id)),
+            (None, Some(rule_title)) => title.as_ref().is_some_and(|t| return t.contains(rule_title)),
             (None, None) => true,
         };
 
-        if matches {
-            if let Some(override_blur) = &rule.blur {
+        if matches
+            && let Some(override_blur) = &rule.blur {
                 let mut result = config.blur;
                 result.enable = override_blur.enable;
                 if let Some(passes) = override_blur.passes {
@@ -547,10 +547,9 @@ fn resolve_window_blur(window: &WindowElement, config: &Config) -> ResolvedWindo
                 };
             }
             // Rule matches but has no blur override; keep looking for a rule with blur
-        }
     }
 
-    ResolvedWindowBlur {
+    return ResolvedWindowBlur {
         blur: config.blur,
         rule_forces_blur: false,
     }
@@ -564,8 +563,8 @@ fn resolve_layer_blur(namespace: &str, config: &Config) -> BlurConfig {
             None => true,
         };
 
-        if matches {
-            if let Some(override_blur) = &rule.blur {
+        if matches
+            && let Some(override_blur) = &rule.blur {
                 let mut result = config.blur;
                 result.enable = override_blur.enable;
                 if let Some(passes) = override_blur.passes {
@@ -579,10 +578,9 @@ fn resolve_layer_blur(namespace: &str, config: &Config) -> BlurConfig {
                 }
                 return result;
             }
-        }
     }
 
-    config.blur
+    return config.blur
 }
 
 #[profiling::function]
@@ -610,7 +608,7 @@ where
     if let Some(window) = output
         .user_data()
         .get::<FullscreenSurface>()
-        .and_then(|f| f.get())
+        .and_then(|f| return f.get())
     {
         let scale = output.current_scale().fractional_scale().into();
         let window_render_elements: Vec<WindowRenderElement> =
@@ -618,9 +616,9 @@ where
 
         let elements = custom_elements
             .into_iter()
-            .map(|e| OutputRenderElementsWithBlur::from(OutputRenderElements::from(e)))
+            .map(|e| return OutputRenderElementsWithBlur::from(OutputRenderElements::from(e)))
             .chain(window_render_elements.into_iter().map(|e| {
-                OutputRenderElementsWithBlur::from(OutputRenderElements::Window(Wrap::from(e)))
+                return OutputRenderElementsWithBlur::from(OutputRenderElements::Window(Wrap::from(e)))
             }))
             .collect::<Vec<_>>();
         (elements, CLEAR_COLOR_FULLSCREEN)
@@ -628,7 +626,7 @@ where
         let mut output_render_elements: Vec<OutputRenderElementsWithBlur<R, WindowRenderElement>> =
             custom_elements
                 .into_iter()
-                .map(|e| OutputRenderElementsWithBlur::from(OutputRenderElements::from(e)))
+                .map(|e| return OutputRenderElementsWithBlur::from(OutputRenderElements::from(e)))
                 .collect::<Vec<_>>();
 
         if show_window_preview && space.elements_for_output(output).next().is_some() {
@@ -666,7 +664,7 @@ where
                                 1.0,
                             );
                         elements.extend(rendered.into_iter().map(|e| {
-                            OutputRenderElementsWithBlur::from(OutputRenderElements::Space(
+                            return OutputRenderElementsWithBlur::from(OutputRenderElements::Space(
                                 SpaceRenderElements::Surface(e),
                             ))
                         }));
@@ -716,17 +714,27 @@ where
             // Iterate windows in z-order (topmost first, matching render_elements_for_region's .rev())
             let windows: Vec<_> = space.elements_for_output(output).collect();
             for window in windows.iter().rev() {
+                // Fetch the decoration state once per window per frame; the previous code
+                // called `decoration_state()` up to three times per window per frame,
+                // re-locking the state cell each time. The borrow must be released before
+                // `render_elements` below, which borrows the same state internally.
+                let (needs_center, skip_hidden, open_anim) = {
+                    let deco = window.decoration_state();
+                    (
+                        deco.needs_center,
+                        deco.hidden && deco.fade_anim.is_none(),
+                        deco.open_animation.clone(),
+                    )
+                };
+
                 // Skip rendering until the window is properly centered
                 // (avoids a position flash on the first frame before centering)
-                if window.decoration_state().needs_center {
+                if needs_center {
                     continue;
                 }
                 // Skip windows on inactive workspaces (fully hidden).
-                {
-                    let ws = window.decoration_state();
-                    if ws.hidden && ws.fade_anim.is_none() {
-                        continue;
-                    }
+                if skip_hidden {
+                    continue;
                 }
 
                 let win_geo = match space.element_geometry(window) {
@@ -734,6 +742,8 @@ where
                     None => continue,
                 };
                 let location = win_geo.loc.to_physical_precise_round(output_scale);
+
+                // `open_anim` is cloned once per window instead of once per render element
 
                 // Render this window's elements
                 let window_elements: Vec<WindowRenderElement> =
@@ -746,8 +756,6 @@ where
                     );
 
                 for elem in window_elements {
-                    // Check if this window has an active open animation
-                    let open_anim = window.decoration_state().open_animation.clone();
                     if let Some(ref anim) = open_anim {
                         let progress = anim.clamped_value().clamp(0., 1.);
                         if !anim.is_done() {
@@ -785,8 +793,11 @@ where
 
                 // Check if this window should have blur
                 if let Some(wl_surface) = window.wl_surface() {
+                    // Fast path: no window rules at all means the blur decision only
+                    // depends on the protocol blur region and the global config.
+                    let has_window_rules = !config.window_rules.is_empty();
                     let has_blur_region = with_states(&wl_surface, |states| {
-                        states
+                        return states
                             .cached_state
                             .get::<BackgroundEffectSurfaceCachedState>()
                             .current()
@@ -794,7 +805,14 @@ where
                             .is_some()
                     });
 
-                    let effective_blur = resolve_window_blur(window, config);
+                    let effective_blur = if has_window_rules {
+                        resolve_window_blur(window, config)
+                    } else {
+                        ResolvedWindowBlur {
+                            blur: config.blur,
+                            rule_forces_blur: false,
+                        }
+                    };
 
                     // Determine if blur should be applied:
                     // - has blur_region (protocol request): apply unless a rule disables it
@@ -808,7 +826,7 @@ where
                     if should_blur && effective_blur.blur.enable {
                         let bbox = space
                             .element_bbox(window)
-                            .unwrap_or_else(|| SpaceElement::bbox(window));
+                            .unwrap_or_else(|| return SpaceElement::bbox(window));
                         let geometry =
                             Rectangle::new(bbox.loc - output_geo.loc, bbox.size).to_f64();
                         let blur_elem = FramebufferEffectElement::new(
@@ -889,5 +907,5 @@ where
         show_window_preview,
         config,
     );
-    damage_tracker.render_output(renderer, framebuffer, age, &elements, clear_color)
+    return damage_tracker.render_output(renderer, framebuffer, age, &elements, clear_color)
 }

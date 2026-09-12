@@ -31,7 +31,7 @@ pub struct BlurOptions {
 impl BlurOptions {
     /// Default blur options with reasonable values.
     pub fn default_blur() -> Self {
-        Self {
+        return Self {
             passes: 2,
             offset: 1.0,
         }
@@ -64,7 +64,7 @@ unsafe fn compile_program(gl: &ffi::Gles2, src: &str) -> Result<BlurProgramInter
     let half_pixel = c"half_pixel";
     let offset = c"offset";
 
-    Ok(BlurProgramInternal {
+    return Ok(BlurProgramInternal {
         program,
         uniform_tex: unsafe { gl.GetUniformLocation(program, tex.as_ptr()) },
         uniform_half_pixel: unsafe { gl.GetUniformLocation(program, half_pixel.as_ptr()) },
@@ -75,13 +75,13 @@ unsafe fn compile_program(gl: &ffi::Gles2, src: &str) -> Result<BlurProgramInter
 
 impl BlurProgram {
     pub fn compile(renderer: &mut GlesRenderer) -> anyhow::Result<Self> {
-        renderer
+        return renderer
             .with_context(move |gl| unsafe {
                 let down = compile_program(gl, include_str!("shaders/blur_down.frag"))
                     .context("error compiling blur_down shader")?;
                 let up = compile_program(gl, include_str!("shaders/blur_up.frag"))
                     .context("error compiling blur_up shader")?;
-                Ok(Self(Rc::new(BlurProgramInner { down, up })))
+                return Ok(Self(Rc::new(BlurProgramInner { down, up })))
             })
             .context("error making GL context current")?
     }
@@ -90,7 +90,7 @@ impl BlurProgram {
 impl Blur {
     pub fn new(renderer: &mut GlesRenderer) -> Option<Self> {
         let program = Shaders::get(renderer).blur.clone()?;
-        Some(Self {
+        return Some(Self {
             program,
             renderer_context_id: renderer.context_id(),
             textures: Vec::new(),
@@ -98,7 +98,7 @@ impl Blur {
     }
 
     pub fn context_id(&self) -> ContextId<GlesTexture> {
-        self.renderer_context_id.clone()
+        return self.renderer_context_id.clone()
     }
 
     pub fn prepare_textures(
@@ -150,7 +150,7 @@ impl Blur {
         // Drop any no longer needed textures.
         self.textures.drain(passes + 1..);
 
-        Ok(())
+        return Ok(())
     }
 
     pub fn render(
@@ -166,8 +166,8 @@ impl Blur {
             "wrong renderer"
         );
 
-        renderer.with_profiled_context(gpu_span_location!("Blur::render"), |gl| {
-            self.render_with_gl(gl, source, options)
+        return renderer.with_profiled_context(gpu_span_location!("Blur::render"), |gl| {
+            return self.render_with_gl(gl, source, options)
         })?
     }
 
@@ -339,6 +339,6 @@ impl Blur {
             gl.DeleteFramebuffers(fbos.len() as _, fbos.as_ptr());
         }
 
-        Ok(self.textures[0].clone())
+        return Ok(self.textures[0].clone())
     }
 }

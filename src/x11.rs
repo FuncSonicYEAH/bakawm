@@ -74,7 +74,7 @@ pub struct X11Data {
 
 impl DmabufHandler for AnvilState<X11Data> {
     fn dmabuf_state(&mut self) -> &mut DmabufState {
-        &mut self.backend_data.dmabuf_state
+        return &mut self.backend_data.dmabuf_state
     }
 
     fn dmabuf_imported(
@@ -98,7 +98,7 @@ impl DmabufHandler for AnvilState<X11Data> {
 
 impl Backend for X11Data {
     fn seat_name(&self) -> String {
-        "x11".to_owned()
+        return "x11".to_owned()
     }
     fn reset_buffers(&mut self, _output: &Output) {
         self.surface.reset_buffers();
@@ -114,7 +114,7 @@ impl Backend for X11Data {
     fn with_primary_renderer<T>(&mut self, f: impl FnOnce(&mut GlesRenderer) -> T) -> Option<T> {
         // x11 backend doesn't have a GlesRenderer
         let _ = f;
-        None
+        return None
     }
 
     fn capture_screenshot(
@@ -151,13 +151,11 @@ impl Backend for X11Data {
         if output_geometry.to_f64().contains(pointer_location) {
             let cursor_hotspot = if let CursorImageStatus::Surface(surface) = cursor_status {
                 compositor::with_states(surface, |states| {
-                    states
+                    return states
                         .data_map
                         .get::<Mutex<CursorImageAttributes>>()
-                        .unwrap()
-                        .lock()
-                        .unwrap()
-                        .hotspot
+                        .map(|attrs| return attrs.lock().unwrap().hotspot)
+                        .unwrap_or_default()
                 })
             } else {
                 (0, 0).into()
@@ -247,7 +245,7 @@ impl Backend for X11Data {
             return None;
         };
 
-        Some(CapturedFrame {
+        return Some(CapturedFrame {
             pixels: bytes.to_vec(),
             width: size.w as u32,
             height: size.h as u32,
@@ -282,7 +280,7 @@ pub fn run_x11() {
 
     let skip_vulkan = std::env::var("ANVIL_NO_VULKAN")
         .map(|x| {
-            x == "1"
+            return x == "1"
                 || x.to_lowercase() == "true"
                 || x.to_lowercase() == "yes"
                 || x.to_lowercase() == "y"
@@ -293,19 +291,19 @@ pub fn run_x11() {
         Instance::new(Version::VERSION_1_2, None)
             .ok()
             .and_then(|instance| {
-                PhysicalDevice::enumerate(&instance)
+                return PhysicalDevice::enumerate(&instance)
                     .ok()
                     .and_then(|devices| {
-                        devices
-                            .filter(|phd| phd.has_device_extension(ext::physical_device_drm::NAME))
+                        return devices
+                            .filter(|phd| return phd.has_device_extension(ext::physical_device_drm::NAME))
                             .find(|phd| {
-                                phd.primary_node().unwrap() == Some(node)
-                                    || phd.render_node().unwrap() == Some(node)
+                                return phd.primary_node().ok().flatten().as_ref() == Some(&node)
+                                    || phd.render_node().ok().flatten().as_ref() == Some(&node)
                             })
                     })
             })
             .and_then(|physical_device| {
-                VulkanAllocator::new(
+                return VulkanAllocator::new(
                     &physical_device,
                     ImageUsageFlags::COLOR_ATTACHMENT | ImageUsageFlags::SAMPLED,
                 )
@@ -324,7 +322,7 @@ pub fn run_x11() {
                 context
                     .dmabuf_render_formats()
                     .iter()
-                    .map(|format| format.modifier),
+                    .map(|format| return format.modifier),
             )
             .expect("Failed to create X11 surface"),
         None => handle
@@ -334,7 +332,7 @@ pub fn run_x11() {
                 context
                     .dmabuf_render_formats()
                     .iter()
-                    .map(|format| format.modifier),
+                    .map(|format| return format.modifier),
             )
             .expect("Failed to create X11 surface"),
     };
@@ -426,9 +424,9 @@ pub fn run_x11() {
         .shm_state
         .update_formats(state.backend_data.renderer.shm_formats());
 
-    let output_config = state.config.outputs.iter().find(|o| o.name == OUTPUT_NAME);
-    let output_position = output_config.and_then(|o| o.position).unwrap_or((0, 0));
-    if let Some(output_scale) = output_config.and_then(|o| o.scale) {
+    let output_config = state.config.outputs.iter().find(|o| return o.name == OUTPUT_NAME);
+    let output_position = output_config.and_then(|o| return o.position).unwrap_or((0, 0));
+    if let Some(output_scale) = output_config.and_then(|o| return o.scale) {
         output.change_current_state(
             None,
             None,
@@ -454,7 +452,9 @@ pub fn run_x11() {
                     size,
                     refresh: 60_000,
                 };
-                output.delete_mode(output.current_mode().unwrap());
+                if let Some(mode) = output.current_mode() {
+                    output.delete_mode(mode);
+                }
                 output.change_current_state(Some(data.backend_data.mode), None, None, None);
                 output.set_preferred(data.backend_data.mode);
                 crate::shell::fixup_positions(&mut data.space, data.pointer.current_location());
@@ -499,7 +499,7 @@ pub fn run_x11() {
             let frame_target = now
                 + output
                     .current_mode()
-                    .map(|mode| Duration::from_secs_f64(1_000f64 / mode.refresh as f64))
+                    .map(|mode| return Duration::from_secs_f64(1_000f64 / mode.refresh as f64))
                     .unwrap_or_default();
             state.pre_repaint(&output, frame_target);
 
@@ -557,13 +557,11 @@ pub fn run_x11() {
             let cursor_hotspot =
                 if let CursorImageStatus::Surface(ref surface) = state.cursor_status {
                     compositor::with_states(surface, |states| {
-                        states
+                        return states
                             .data_map
                             .get::<Mutex<CursorImageAttributes>>()
-                            .unwrap()
-                            .lock()
-                            .unwrap()
-                            .hotspot
+                            .map(|attrs| return attrs.lock().unwrap().hotspot)
+                            .unwrap_or_default()
                     })
                 } else {
                     (0, 0).into()
@@ -645,7 +643,7 @@ pub fn run_x11() {
                             output
                                 .current_mode()
                                 .map(|mode| {
-                                    Refresh::fixed(Duration::from_secs_f64(
+                                    return Refresh::fixed(Duration::from_secs_f64(
                                         1_000f64 / mode.refresh as f64,
                                     ))
                                 })

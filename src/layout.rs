@@ -55,7 +55,7 @@ impl Layout {
                 space.elements_for_output(output).rev().cloned().collect();
             windows.retain(|w| {
                 let s = w.decoration_state();
-                !(s.layout.is_floating || s.needs_center || s.hidden)
+                return !(s.layout.is_floating || s.needs_center || s.hidden)
             });
             if windows.is_empty() {
                 continue;
@@ -64,7 +64,7 @@ impl Layout {
 
             // Windowed fullscreen: the flagged window fills the whole work area,
             // covering the rest of the layout (others stay where they are).
-            if let Some(fw) = windows.iter().find(|w| w.decoration_state().layout.full_width) {
+            if let Some(fw) = windows.iter().find(|w| return w.decoration_state().layout.full_width) {
                 plans.push(Plan {
                     window: fw.clone(),
                     target: area,
@@ -75,7 +75,7 @@ impl Layout {
             // Per-window column width overrides (None = layout default).
             let widths: Vec<Option<f64>> = windows
                 .iter()
-                .map(|w| w.decoration_state().layout.width_override.filter(|v| *v > 0.0))
+                .map(|w| return w.decoration_state().layout.width_override.filter(|v| return *v > 0.0))
                 .collect();
 
             if config.layout == LayoutType::Custom {
@@ -86,7 +86,7 @@ impl Layout {
                             .map(|w| {
                                 let s = w.decoration_state();
                                 let geo = space.element_geometry(w).unwrap_or_default().to_f64();
-                                (
+                                return (
                                     s.layout.layout_id,
                                     geo.size.w,
                                     geo.size.h,
@@ -152,7 +152,7 @@ impl Layout {
             }
         }
 
-        plans
+        return plans
     }
 
     /// Advance layout animations. Called once per frame.
@@ -166,14 +166,15 @@ impl Layout {
             let mut state = window.decoration_state();
 
             // Finalize completed workspace-switch fade animations.
-            if state.fade_anim.as_ref().is_some_and(|f| f.is_done()) {
+            if state.fade_anim.as_ref().is_some_and(|f| return f.is_done()) {
                 state.fade_anim = None;
                 changed = true;
             }
 
             let lws = &mut state.layout;
 
-            if let Some((start, anim)) = lws.move_anim.clone() {
+            // Read the animation through the borrow instead of cloning the pair.
+            if let Some((start, anim)) = lws.move_anim.as_ref() {
                 if anim.is_done() {
                     if let Some(target) = lws.target {
                         relocates.push((window.clone(), target.loc));
@@ -182,7 +183,7 @@ impl Layout {
                     changed = true;
                 } else {
                     let value = anim.clamped_value();
-                    let dest = lws.target.map(|t| t.loc).unwrap_or(start);
+                    let dest = lws.target.map(|t| return t.loc).unwrap_or(*start);
                     let pos = Point::from((
                         start.x + (dest.x - start.x) * value,
                         start.y + (dest.y - start.y) * value,
@@ -196,7 +197,7 @@ impl Layout {
             space.relocate_element(&window, pos.to_i32_round());
         }
 
-        changed
+        return changed
     }
 }
 
@@ -213,7 +214,7 @@ pub struct Plan {
 /// commit integer sizes. Comparing exactly would never settle, re-capturing a
 /// resize snapshot on every commit and leaving a permanent "ghost" window.
 fn sizes_differ(a: Size<f64, Logical>, b: Size<f64, Logical>) -> bool {
-    (a.w - b.w).abs() > 0.5 || (a.h - b.h).abs() > 0.5
+    return (a.w - b.w).abs() > 0.5 || (a.h - b.h).abs() > 0.5
 }
 
 /// Per-window state used by the layout engine.
@@ -243,7 +244,7 @@ pub struct LayoutWindowState {
 
 impl Default for LayoutWindowState {
     fn default() -> Self {
-        Self {
+        return Self {
             layout_id: 0,
             is_floating: false,
             initialized: false,
@@ -298,7 +299,7 @@ impl ResizeSnapshot {
             Some(size),
             Kind::Unspecified,
         );
-        Some(ResizeSnapshotRenderElement(elem))
+        return Some(ResizeSnapshotRenderElement(elem))
     }
 }
 
@@ -308,23 +309,23 @@ pub struct ResizeSnapshotRenderElement(TextureRenderElement<GlesTexture>);
 
 impl Element for ResizeSnapshotRenderElement {
     fn id(&self) -> &Id {
-        self.0.id()
+        return self.0.id()
     }
 
     fn current_commit(&self) -> CommitCounter {
-        self.0.current_commit()
+        return self.0.current_commit()
     }
 
     fn geometry(&self, scale: Scale<f64>) -> Rectangle<i32, Physical> {
-        self.0.geometry(scale)
+        return self.0.geometry(scale)
     }
 
     fn transform(&self) -> Transform {
-        self.0.transform()
+        return self.0.transform()
     }
 
     fn src(&self) -> Rectangle<f64, Buffer> {
-        self.0.src()
+        return self.0.src()
     }
 
     fn damage_since(
@@ -332,22 +333,22 @@ impl Element for ResizeSnapshotRenderElement {
         scale: Scale<f64>,
         commit: Option<CommitCounter>,
     ) -> DamageSet<i32, Physical> {
-        self.0.damage_since(scale, commit)
+        return self.0.damage_since(scale, commit)
     }
 
     fn opaque_regions(
         &self,
         scale: Scale<f64>,
     ) -> smithay::backend::renderer::utils::OpaqueRegions<i32, Physical> {
-        self.0.opaque_regions(scale)
+        return self.0.opaque_regions(scale)
     }
 
     fn alpha(&self) -> f32 {
-        self.0.alpha()
+        return self.0.alpha()
     }
 
     fn kind(&self) -> Kind {
-        self.0.kind()
+        return self.0.kind()
     }
 }
 
@@ -361,11 +362,11 @@ impl RenderElement<GlesRenderer> for ResizeSnapshotRenderElement {
         opaque_regions: &[Rectangle<i32, Physical>],
         cache: Option<&UserDataMap>,
     ) -> Result<(), GlesError> {
-        RenderElement::<GlesRenderer>::draw(&self.0, frame, src, dst, damage, opaque_regions, cache)
+        return RenderElement::<GlesRenderer>::draw(&self.0, frame, src, dst, damage, opaque_regions, cache)
     }
 
     fn underlying_storage(&self, renderer: &mut GlesRenderer) -> Option<UnderlyingStorage<'_>> {
-        self.0.underlying_storage(renderer)
+        return self.0.underlying_storage(renderer)
     }
 }
 
@@ -384,7 +385,7 @@ impl<'a, 'b> RenderElement<UdevMultiRenderer<'a, 'b>> for ResizeSnapshotRenderEl
         cache: Option<&UserDataMap>,
     ) -> Result<(), <UdevMultiRenderer<'a, 'b> as smithay::backend::renderer::RendererSuper>::Error>
     {
-        RenderElement::<GlesRenderer>::draw(
+        return RenderElement::<GlesRenderer>::draw(
             &self.0,
             frame.as_mut(),
             src,
@@ -400,7 +401,7 @@ impl<'a, 'b> RenderElement<UdevMultiRenderer<'a, 'b>> for ResizeSnapshotRenderEl
         &self,
         renderer: &mut UdevMultiRenderer<'a, 'b>,
     ) -> Option<UnderlyingStorage<'_>> {
-        self.0.underlying_storage(renderer.as_mut())
+        return self.0.underlying_storage(renderer.as_mut())
     }
 }
 
@@ -425,7 +426,7 @@ fn work_area(
 
     // Apply the layout margins on top of the shell zone, so tiled windows keep
     // the configured gap from every screen edge *and* from bars/panels.
-    Some(Rectangle::new(
+    return Some(Rectangle::new(
         Point::from((zone_global.loc.x + m.left, zone_global.loc.y + m.top)),
         Size::from((
             (zone_global.size.w - m.left - m.right).max(0.),
@@ -446,8 +447,8 @@ fn columns_layout(
     if n == 0 {
         return Vec::new();
     }
-    let fixed: f64 = widths.iter().filter_map(|w| *w).sum();
-    let flex_count = widths.iter().filter(|w| w.is_none()).count();
+    let fixed: f64 = widths.iter().filter_map(|w| return *w).sum();
+    let flex_count = widths.iter().filter(|w| return w.is_none()).count();
     let flex_w = if flex_count > 0 {
         ((area.size.w - fixed - gap * (n as f64 - 1.)) / flex_count as f64).max(0.)
     } else {
@@ -463,7 +464,7 @@ fn columns_layout(
         ));
         x += col_w + gap;
     }
-    rects
+    return rects
 }
 
 /// Uniform grid, filling rows left-to-right, top-to-bottom.
@@ -472,16 +473,16 @@ fn grid_layout(area: Rectangle<f64, Logical>, n: usize, gap: f64) -> Vec<Rectang
         return Vec::new();
     }
     let cols = (n as f64).sqrt().ceil() as usize;
-    let rows = (n + cols - 1) / cols;
+    let rows = n.div_ceil(cols);
     let cell_w = ((area.size.w - gap * (cols as f64 - 1.)) / cols as f64).max(0.);
     let cell_h = ((area.size.h - gap * (rows as f64 - 1.)) / rows as f64).max(0.);
-    (0..n)
+    return (0..n)
         .map(|i| {
             let r = i / cols;
             let c = i % cols;
             let x = area.loc.x + c as f64 * (cell_w + gap);
             let y = area.loc.y + r as f64 * (cell_h + gap);
-            Rectangle::new(Point::from((x, y)), Size::from((cell_w, cell_h)))
+            return Rectangle::new(Point::from((x, y)), Size::from((cell_w, cell_h)))
         })
         .collect()
 }
@@ -516,7 +517,7 @@ fn master_stack_layout(
             ));
         }
     }
-    rects
+    return rects
 }
 
 /// Every window maximized to the work area.
@@ -525,7 +526,7 @@ fn maximize_layout(
     n: usize,
     _gap: f64,
 ) -> Vec<Rectangle<f64, Logical>> {
-    (0..n).map(|_| area).collect()
+    return (0..n).map(|_| return area).collect()
 }
 
 /// Apply a single plan to one window: start/advance position and size animations,
@@ -540,9 +541,9 @@ fn apply_plan(
     let animations_enabled = config.animations.enable;
     let move_anim_of = || -> Animation {
         if animations_enabled {
-            anim_config.move_anim.to_animation(0.0, 1.0)
+            return anim_config.move_anim.to_animation(0.0, 1.0)
         } else {
-            Animation::new_off()
+            return Animation::new_off()
         }
     };
 
@@ -552,35 +553,32 @@ fn apply_plan(
 
     let current = space
         .element_geometry(&plan.window)
-        .map(|g| g.to_f64())
-        .unwrap_or_else(|| Rectangle::new(plan.target.loc, Size::from((0., 0.))));
+        .map(|g| return g.to_f64())
+        .unwrap_or_else(|| return Rectangle::new(plan.target.loc, Size::from((0., 0.))));
     let current_loc = current.loc;
     let target_loc = plan.target.loc;
     let target_size = plan.target.size;
 
     // --- Position animation ---
-    let same_target = lws.target.map(|t| t.loc == target_loc).unwrap_or(false);
-    match lws.move_anim.clone() {
-        Some((_start, anim)) => {
-            if !anim.is_done() && !same_target {
-                // Target changed: restart from the current animated position.
-                lws.move_anim = Some((current_loc, move_anim_of()));
-            }
-            // If the animation is done or still converging to the same target,
-            // keep it; update() finishes converged animations.
+    let same_target = lws.target.map(|t| return t.loc == target_loc).unwrap_or(false);
+    // Read the animation state through the borrow instead of cloning the pair.
+    let anim_pending = matches!(&lws.move_anim, Some((_start, anim)) if !anim.is_done());
+    if lws.move_anim.is_some() {
+        if anim_pending && !same_target {
+            // Target changed: restart from the current animated position.
+            lws.move_anim = Some((current_loc, move_anim_of()));
         }
-        None => {
-            if !lws.initialized {
-                // New window: place directly, no animation.
-                space.relocate_element(&plan.window, target_loc.to_i32_round());
-            } else if current_loc != target_loc {
-                let anim = move_anim_of();
-                if anim.is_done() {
-                    space.relocate_element(&plan.window, target_loc.to_i32_round());
-                } else {
-                    lws.move_anim = Some((current_loc, anim));
-                }
-            }
+        // If the animation is done or still converging to the same target,
+        // keep it; update() finishes converged animations.
+    } else if !lws.initialized {
+        // New window: place directly, no animation.
+        space.relocate_element(&plan.window, target_loc.to_i32_round());
+    } else if current_loc != target_loc {
+        let anim = move_anim_of();
+        if anim.is_done() {
+            space.relocate_element(&plan.window, target_loc.to_i32_round());
+        } else {
+            lws.move_anim = Some((current_loc, anim));
         }
     }
 
@@ -621,7 +619,7 @@ impl<B: Backend> AnvilState<B> {
         if config.layout == LayoutType::Floating {
             return;
         }
-        let lua = self.lua_config.as_ref().map(|l| &**l);
+        let lua = self.lua_config.as_ref().map(|l| return &**l);
         let plans = Layout::compute_plans(&self.space, &config, lua);
         if plans.is_empty() {
             return;
@@ -664,7 +662,7 @@ impl<B: Backend> AnvilState<B> {
             .outputs_for_element(window)
             .first()
             .cloned()
-            .or_else(|| self.space.outputs().next().cloned())
+            .or_else(|| return self.space.outputs().next().cloned())
         else {
             return;
         };
@@ -676,7 +674,7 @@ impl<B: Backend> AnvilState<B> {
             .rev()
             .filter(|w| {
                 let s = w.decoration_state();
-                w != &window && !s.hidden && !s.layout.is_floating
+                return w != &window && !s.hidden && !s.layout.is_floating
             })
             .cloned()
             .collect();
@@ -702,11 +700,11 @@ impl<B: Backend> AnvilState<B> {
             .elements_for_output(&output)
             .filter(|w| {
                 let s = w.decoration_state();
-                !s.hidden && !s.layout.is_floating
+                return !s.hidden && !s.layout.is_floating
             })
             .cloned()
             .collect();
-        ordered.retain(|w| w != window);
+        ordered.retain(|w| return w != window);
         let idx_from_bottom = ordered.len().saturating_sub(target.min(ordered.len()));
         ordered.insert(idx_from_bottom, window.clone());
 

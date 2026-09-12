@@ -33,13 +33,13 @@ const fn triangle_verts() -> [ffi::types::GLfloat; 12 * MAX_RECTS_PER_DRAW] {
             break;
         }
     }
-    verts
+    return verts
 }
 
 impl Resources {
     fn create(renderer: &mut GlesRenderer) -> Result<Self, GlesError> {
         let supports_instancing = renderer.capabilities().contains(&Capability::Instancing);
-        renderer.with_context(|gl| unsafe {
+        return renderer.with_context(|gl| unsafe {
             let vertices: &[ffi::types::GLfloat] = if supports_instancing {
                 &INSTANCED_VERTS
             } else {
@@ -57,7 +57,7 @@ impl Resources {
             );
             gl.BindBuffer(ffi::ARRAY_BUFFER, 0);
 
-            Self {
+            return Self {
                 vertices: vec![],
                 vbos,
             }
@@ -66,7 +66,7 @@ impl Resources {
 
     pub fn get(frame: &mut GlesFrame<'_, '_>) -> Option<Rc<RefCell<Self>>> {
         let data = frame.egl_context().user_data();
-        data.get().cloned()
+        return data.get().cloned()
     }
 }
 
@@ -74,7 +74,7 @@ pub fn init(renderer: &mut GlesRenderer) {
     match Resources::create(renderer) {
         Ok(resources) => {
             let data = renderer.egl_context().user_data();
-            if !data.insert_if_missing(|| Rc::new(RefCell::new(resources))) {
+            if !data.insert_if_missing(|| return Rc::new(RefCell::new(resources))) {
                 tracing::warn!("resources were already initialized");
             }
         }
